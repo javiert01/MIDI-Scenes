@@ -6,9 +6,13 @@ export interface P5Like {
   draw?: () => void;
   createCanvas(w: number, h: number): void;
   noStroke(): void;
+  stroke(...args: number[]): void;
+  strokeWeight(weight: number): void;
   background(...args: number[]): void;
   fill(...args: number[]): void;
   rect(x: number, y: number, w: number, h: number): void;
+  line(x1: number, y1: number, x2: number, y2: number): void;
+  millis(): number;
   remove(): void;
 }
 
