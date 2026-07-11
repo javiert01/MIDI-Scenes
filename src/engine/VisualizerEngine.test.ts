@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { VisualizerEngine } from '@/engine/VisualizerEngine';
 import type { P5Factory, P5Like } from '@/engine/types';
-import type { ParamSpec, Scene, SceneContext } from '@/engine/scene';
+import type { ParamSpec, Scene, SceneContext, NoteEvent } from '@/engine/scene';
+import type { MidiAccessLike, MidiInputLike, MidiMessageHandler } from '@/engine/midiTypes';
 
 interface RecordedCall {
   name: string;
@@ -88,6 +89,73 @@ class FakeScene implements Scene {
     readonly id: string,
     readonly label: string,
   ) {}
+}
+
+class FakeMidiAccess implements MidiAccessLike {
+  inputs: MidiInputLike[];
+  private readonly messageHandlers = new Map<string, Set<MidiMessageHandler>>();
+  private readonly deviceChangeHandlers = new Set<() => void>();
+
+  constructor(inputs: MidiInputLike[] = []) {
+    this.inputs = inputs;
+  }
+
+  onMessage(inputId: string, handler: MidiMessageHandler): () => void {
+    if (!this.messageHandlers.has(inputId)) this.messageHandlers.set(inputId, new Set());
+    this.messageHandlers.get(inputId)!.add(handler);
+    return () => this.messageHandlers.get(inputId)?.delete(handler);
+  }
+
+  onDeviceChange(handler: () => void): () => void {
+    this.deviceChangeHandlers.add(handler);
+    return () => this.deviceChangeHandlers.delete(handler);
+  }
+
+  emit(inputId: string, data: number[]): void {
+    this.messageHandlers.get(inputId)?.forEach((handler) => handler(data));
+  }
+
+  setInputs(inputs: MidiInputLike[]): void {
+    this.inputs = inputs;
+    this.deviceChangeHandlers.forEach((handler) => handler());
+  }
+}
+
+class FakeStorage implements Storage {
+  private readonly map = new Map<string, string>();
+
+  get length(): number {
+    return this.map.size;
+  }
+
+  clear(): void {
+    this.map.clear();
+  }
+
+  getItem(key: string): string | null {
+    return this.map.get(key) ?? null;
+  }
+
+  key(index: number): string | null {
+    return [...this.map.keys()][index] ?? null;
+  }
+
+  removeItem(key: string): void {
+    this.map.delete(key);
+  }
+
+  setItem(key: string, value: string): void {
+    this.map.set(key, value);
+  }
+}
+
+function fakeMidiFactory(access: FakeMidiAccess) {
+  return () => Promise.resolve(access);
+}
+
+async function flushMicrotasks(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
 }
 
 describe('VisualizerEngine', () => {
@@ -299,5 +367,198 @@ describe('VisualizerEngine Scene Registry & switching', () => {
     engine.destroy();
 
     expect(sceneA.teardown).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('VisualizerEngine MIDI: Device enumeration, selection, dispatch', () => {
+  const deviceA: MidiInputLike = { id: 'dev-a', name: 'Keyboard A' };
+  const deviceB: MidiInputLike = { id: 'dev-b', name: 'Keyboard B' };
+
+  it('enumerates Devices from the MIDI provider', async () => {
+    const { factory } = stubP5Factory();
+    const container = document.createElement('div');
+    const midi = new FakeMidiAccess([deviceA, deviceB]);
+
+    const engine = new VisualizerEngine(container, {
+      createP5: factory,
+      createMidi: fakeMidiFactory(midi),
+      storage: new FakeStorage(),
+    });
+    await flushMicrotasks();
+
+    expect(engine.devices).toEqual([
+      { id: 'dev-a', label: 'Keyboard A' },
+      { id: 'dev-b', label: 'Keyboard B' },
+    ]);
+  });
+
+  it('auto-selects the first available Device on startup with no remembered Device', async () => {
+    const { factory } = stubP5Factory();
+    const container = document.createElement('div');
+    const midi = new FakeMidiAccess([deviceA, deviceB]);
+
+    const engine = new VisualizerEngine(container, {
+      createP5: factory,
+      createMidi: fakeMidiFactory(midi),
+      storage: new FakeStorage(),
+    });
+    await flushMicrotasks();
+
+    expect(engine.activeDeviceId).toBe('dev-a');
+  });
+
+  it('selects the remembered Device on startup when it is still connected', async () => {
+    const { factory } = stubP5Factory();
+    const container = document.createElement('div');
+    const midi = new FakeMidiAccess([deviceA, deviceB]);
+    const storage = new FakeStorage();
+    storage.setItem('midi-visualizer:device-id', 'dev-b');
+
+    const engine = new VisualizerEngine(container, {
+      createP5: factory,
+      createMidi: fakeMidiFactory(midi),
+      storage,
+    });
+    await flushMicrotasks();
+
+    expect(engine.activeDeviceId).toBe('dev-b');
+  });
+
+  it('selectDevice switches the active Device and persists the choice', async () => {
+    const { factory } = stubP5Factory();
+    const container = document.createElement('div');
+    const midi = new FakeMidiAccess([deviceA, deviceB]);
+    const storage = new FakeStorage();
+
+    const engine = new VisualizerEngine(container, {
+      createP5: factory,
+      createMidi: fakeMidiFactory(midi),
+      storage,
+    });
+    await flushMicrotasks();
+
+    engine.selectDevice('dev-b');
+
+    expect(engine.activeDeviceId).toBe('dev-b');
+    expect(storage.getItem('midi-visualizer:device-id')).toBe('dev-b');
+  });
+
+  it("dispatches the selected Device's note-on messages to the Active Scene as a normalized NoteEvent", async () => {
+    const { factory } = stubP5Factory();
+    const container = document.createElement('div');
+    const midi = new FakeMidiAccess([deviceA]);
+    const sceneA = new FakeScene('a', 'Scene A');
+
+    new VisualizerEngine(container, {
+      createP5: factory,
+      createMidi: fakeMidiFactory(midi),
+      storage: new FakeStorage(),
+      scenes: [sceneA],
+    });
+    await flushMicrotasks();
+
+    midi.emit('dev-a', [0x90, 60, 100]);
+
+    expect(sceneA.onNoteOn).toHaveBeenCalledTimes(1);
+    const [event] = sceneA.onNoteOn.mock.calls[0] as [NoteEvent, SceneContext];
+    expect(event).toEqual({ note: 60, name: 'C4', velocity: 100 / 127, raw: 100, channel: 1 });
+  });
+
+  it('treats a note-on with velocity 0 as note-off', async () => {
+    const { factory } = stubP5Factory();
+    const container = document.createElement('div');
+    const midi = new FakeMidiAccess([deviceA]);
+    const sceneA = new FakeScene('a', 'Scene A');
+
+    new VisualizerEngine(container, {
+      createP5: factory,
+      createMidi: fakeMidiFactory(midi),
+      storage: new FakeStorage(),
+      scenes: [sceneA],
+    });
+    await flushMicrotasks();
+
+    midi.emit('dev-a', [0x90, 60, 0]);
+
+    expect(sceneA.onNoteOn).not.toHaveBeenCalled();
+    expect(sceneA.onNoteOff).toHaveBeenCalledTimes(1);
+    const [event] = sceneA.onNoteOff.mock.calls[0] as [NoteEvent, SceneContext];
+    expect(event.velocity).toBe(0);
+  });
+
+  it("ignores messages from a Device that isn't the selected one", async () => {
+    const { factory } = stubP5Factory();
+    const container = document.createElement('div');
+    const midi = new FakeMidiAccess([deviceA, deviceB]);
+    const sceneA = new FakeScene('a', 'Scene A');
+
+    const engine = new VisualizerEngine(container, {
+      createP5: factory,
+      createMidi: fakeMidiFactory(midi),
+      storage: new FakeStorage(),
+      scenes: [sceneA],
+    });
+    await flushMicrotasks();
+    expect(engine.activeDeviceId).toBe('dev-a');
+
+    midi.emit('dev-b', [0x90, 60, 100]);
+
+    expect(sceneA.onNoteOn).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the first remaining Device when the active Device is unplugged', async () => {
+    const { factory } = stubP5Factory();
+    const container = document.createElement('div');
+    const midi = new FakeMidiAccess([deviceA, deviceB]);
+
+    const engine = new VisualizerEngine(container, {
+      createP5: factory,
+      createMidi: fakeMidiFactory(midi),
+      storage: new FakeStorage(),
+    });
+    await flushMicrotasks();
+    expect(engine.activeDeviceId).toBe('dev-a');
+
+    midi.setInputs([deviceB]);
+
+    expect(engine.activeDeviceId).toBe('dev-b');
+  });
+
+  it('falls back to no active Device when every Device is unplugged', async () => {
+    const { factory } = stubP5Factory();
+    const container = document.createElement('div');
+    const midi = new FakeMidiAccess([deviceA]);
+
+    const engine = new VisualizerEngine(container, {
+      createP5: factory,
+      createMidi: fakeMidiFactory(midi),
+      storage: new FakeStorage(),
+    });
+    await flushMicrotasks();
+    expect(engine.activeDeviceId).toBe('dev-a');
+
+    midi.setInputs([]);
+
+    expect(engine.activeDeviceId).toBeNull();
+  });
+
+  it('a Device connected after load can be selected', async () => {
+    const { factory } = stubP5Factory();
+    const container = document.createElement('div');
+    const midi = new FakeMidiAccess([deviceA]);
+
+    const engine = new VisualizerEngine(container, {
+      createP5: factory,
+      createMidi: fakeMidiFactory(midi),
+      storage: new FakeStorage(),
+    });
+    await flushMicrotasks();
+
+    midi.setInputs([deviceA, deviceB]);
+    expect(engine.devices).toContainEqual({ id: 'dev-b', label: 'Keyboard B' });
+
+    engine.selectDevice('dev-b');
+
+    expect(engine.activeDeviceId).toBe('dev-b');
   });
 });

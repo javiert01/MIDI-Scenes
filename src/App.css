@@ -35,11 +35,15 @@
 }
 
 .sidebar h2 {
-  margin: 0 0 0.75rem;
+  margin: 1.5rem 0 0.75rem;
   font-size: 0.9rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: #9aa0aa;
+}
+
+.sidebar h2:first-child {
+  margin-top: 0;
 }
 
 .scene-list {
@@ -65,4 +69,10 @@
 .scene-list button.active {
   border-color: #4f8cff;
   background: #26314a;
+}
+
+.device-empty {
+  color: #9aa0aa;
+  font-size: 0.85rem;
+  margin: 0;
 }

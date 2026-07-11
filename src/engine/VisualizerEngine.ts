@@ -2,6 +2,9 @@ import p5 from 'p5';
 import type { P5Factory, P5Like } from './types';
 import type { ParamSpec, ParamValue, Scene, SceneContext } from './scene';
 import { SceneRegistry } from './SceneRegistry';
+import { parseNoteMessage } from './midi';
+import type { MidiAccessLike, MidiFactory } from './midiTypes';
+import { defaultMidiFactory } from './webMidiAdapter';
 
 const DEFAULT_WIDTH = 1600;
 const DEFAULT_HEIGHT = 800;
@@ -10,10 +13,17 @@ const CHROMA_KEY_RATIO = 1 / 3;
 const BACKGROUND_GRAY = 10;
 const CHROMA_KEY_GREEN: [number, number, number] = [0, 177, 64];
 
+const DEVICE_STORAGE_KEY = 'midi-visualizer:device-id';
+
 export const defaultP5Factory: P5Factory = (sketch, node) =>
   new p5(sketch, node) as unknown as P5Like;
 
 export interface SceneDescriptor {
+  id: string;
+  label: string;
+}
+
+export interface DeviceDescriptor {
   id: string;
   label: string;
 }
@@ -24,6 +34,8 @@ export interface VisualizerEngineOptions {
   chromaKeyRatio?: number;
   createP5?: P5Factory;
   scenes?: Scene[];
+  createMidi?: MidiFactory;
+  storage?: Storage;
 }
 
 function defaultParamValues(specs: ParamSpec[]): Record<string, ParamValue> {
@@ -54,11 +66,19 @@ export class VisualizerEngine {
   private sceneStartMillis = 0;
   private lastFrameMillis = 0;
 
+  private readonly storage?: Storage;
+  private midiAccess: MidiAccessLike | null = null;
+  private selectedDeviceId: string | null = null;
+  private unsubscribeMessage: (() => void) | null = null;
+  private unsubscribeDeviceChange: (() => void) | null = null;
+
   constructor(container: HTMLElement, options: VisualizerEngineOptions = {}) {
     this.width = options.width ?? DEFAULT_WIDTH;
     this.height = options.height ?? DEFAULT_HEIGHT;
     this.chromaKeyHeight = this.height * (options.chromaKeyRatio ?? CHROMA_KEY_RATIO);
     this.visualizationHeight = this.height - this.chromaKeyHeight;
+    this.storage =
+      options.storage ?? (typeof window !== 'undefined' ? window.localStorage : undefined);
 
     this.registry = new SceneRegistry(options.scenes ?? []);
     for (const scene of this.registry.list()) {
@@ -78,6 +98,8 @@ export class VisualizerEngine {
         this.renderFrame(p);
       };
     }, container);
+
+    void this.initMidi(options.createMidi ?? defaultMidiFactory);
   }
 
   /** Scenes available for the sidebar to list. */
@@ -89,12 +111,31 @@ export class VisualizerEngine {
     return this.activeScene?.id ?? null;
   }
 
+  /** MIDI Devices available for the sidebar to list. */
+  get devices(): DeviceDescriptor[] {
+    return this.midiAccess?.inputs.map(({ id, name }) => ({ id, label: name })) ?? [];
+  }
+
+  get activeDeviceId(): string | null {
+    return this.selectedDeviceId;
+  }
+
   /** Switches the Active Scene: tears down the outgoing Scene, sets up the incoming one. */
   selectScene(id: string): void {
     if (id === this.activeScene?.id) return;
     const scene = this.registry.get(id);
     if (!scene) return;
     this.activateScene(scene);
+  }
+
+  /** Selects the single Device the engine binds MIDI message handlers to. */
+  selectDevice(id: string): void {
+    if (!this.midiAccess) return;
+    if (id === this.selectedDeviceId) return;
+    const exists = this.midiAccess.inputs.some((input) => input.id === id);
+    if (!exists) return;
+    this.wireDevice(id);
+    this.notify();
   }
 
   /** Registers a listener notified whenever engine state (e.g. Active Scene) changes. */
@@ -106,6 +147,8 @@ export class VisualizerEngine {
   /** Stops the draw loop and removes the p5 canvas. Call on unmount. */
   destroy(): void {
     this.activeScene?.teardown();
+    this.unwireActiveDevice();
+    this.unsubscribeDeviceChange?.();
     this.p.remove();
   }
 
@@ -120,6 +163,61 @@ export class VisualizerEngine {
 
   private notify(): void {
     this.listeners.forEach((listener) => listener());
+  }
+
+  private async initMidi(createMidi: MidiFactory): Promise<void> {
+    try {
+      this.midiAccess = await createMidi();
+    } catch {
+      this.midiAccess = null;
+      return;
+    }
+    this.unsubscribeDeviceChange = this.midiAccess.onDeviceChange(() => this.syncDevices());
+    this.syncDevices(this.storage?.getItem(DEVICE_STORAGE_KEY) ?? undefined);
+  }
+
+  /** Reconciles the active Device against the current Device list (startup + hot-plug). */
+  private syncDevices(preferredId?: string): void {
+    const inputs = this.midiAccess?.inputs ?? [];
+    const stillPresent = inputs.some((input) => input.id === this.selectedDeviceId);
+    if (this.selectedDeviceId && !stillPresent) {
+      this.unwireActiveDevice();
+    }
+
+    if (!this.selectedDeviceId) {
+      const preferred = preferredId && inputs.some((input) => input.id === preferredId);
+      const nextId = preferred ? preferredId : inputs[0]?.id;
+      if (nextId) this.wireDevice(nextId);
+    }
+
+    this.notify();
+  }
+
+  // Only called once midiAccess has resolved (initMidi/syncDevices/selectDevice all guard it).
+  private wireDevice(id: string): void {
+    if (!this.midiAccess) return;
+    this.unwireActiveDevice();
+    this.selectedDeviceId = id;
+    this.unsubscribeMessage = this.midiAccess.onMessage(id, (data) => this.handleRawMessage(data));
+    this.storage?.setItem(DEVICE_STORAGE_KEY, id);
+  }
+
+  private unwireActiveDevice(): void {
+    this.unsubscribeMessage?.();
+    this.unsubscribeMessage = null;
+    this.selectedDeviceId = null;
+  }
+
+  private handleRawMessage(data: number[]): void {
+    if (!this.activeScene) return;
+    const parsed = parseNoteMessage(data);
+    if (!parsed) return;
+    const ctx = this.buildContext(this.p.millis() - this.sceneStartMillis, 0);
+    if (parsed.type === 'noteon') {
+      this.activeScene.onNoteOn(parsed.event, ctx);
+    } else {
+      this.activeScene.onNoteOff(parsed.event, ctx);
+    }
   }
 
   private buildContext(elapsed: number, deltaTime: number): SceneContext {
