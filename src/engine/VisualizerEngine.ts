@@ -71,6 +71,9 @@ export class VisualizerEngine {
   private selectedDeviceId: string | null = null;
   private unsubscribeMessage: (() => void) | null = null;
   private unsubscribeDeviceChange: (() => void) | null = null;
+  // Cached so useSyncExternalStore's getSnapshot returns a stable reference
+  // between notify() calls instead of a fresh array on every render.
+  private cachedDevices: DeviceDescriptor[] = [];
 
   constructor(container: HTMLElement, options: VisualizerEngineOptions = {}) {
     this.width = options.width ?? DEFAULT_WIDTH;
@@ -113,7 +116,7 @@ export class VisualizerEngine {
 
   /** MIDI Devices available for the sidebar to list. */
   get devices(): DeviceDescriptor[] {
-    return this.midiAccess?.inputs.map(({ id, name }) => ({ id, label: name })) ?? [];
+    return this.cachedDevices;
   }
 
   get activeDeviceId(): string | null {
@@ -179,6 +182,7 @@ export class VisualizerEngine {
   /** Reconciles the active Device against the current Device list (startup + hot-plug). */
   private syncDevices(preferredId?: string): void {
     const inputs = this.midiAccess?.inputs ?? [];
+    this.cachedDevices = inputs.map(({ id, name }) => ({ id, label: name }));
     const stillPresent = inputs.some((input) => input.id === this.selectedDeviceId);
     if (this.selectedDeviceId && !stillPresent) {
       this.unwireActiveDevice();
