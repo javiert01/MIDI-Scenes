@@ -1,0 +1,20 @@
+.canvas-stage {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #000;
+}
+
+.canvas-container {
+  aspect-ratio: 2 / 1;
+  width: min(100vw, 200vh);
+  max-height: 100vh;
+}
+
+.canvas-container canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}

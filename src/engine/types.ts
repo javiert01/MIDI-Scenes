@@ -1,0 +1,17 @@
+/** The subset of a p5 instance the engine needs. Lets tests inject a stub. */
+export interface P5Like {
+  width: number;
+  height: number;
+  setup?: () => void;
+  draw?: () => void;
+  createCanvas(w: number, h: number): void;
+  noStroke(): void;
+  background(...args: number[]): void;
+  fill(...args: number[]): void;
+  rect(x: number, y: number, w: number, h: number): void;
+  remove(): void;
+}
+
+export type P5Sketch = (p: P5Like) => void;
+
+export type P5Factory = (sketch: P5Sketch, node: HTMLElement) => P5Like;
