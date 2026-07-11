@@ -1,0 +1,7 @@
+{
+    "scripts": {
+        "start": "nodemon api/index.js --ignore ./sessions --verbose",
+        "build": "webpack",
+        "dev": "node api/index.js"
+    }
+}
