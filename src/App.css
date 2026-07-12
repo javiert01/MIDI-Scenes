@@ -32,19 +32,55 @@
   background: #16181d;
   color: #e6e6e6;
   padding: 1rem;
+  padding-top: 3.5rem;
   overflow-y: auto;
 }
 
-.sidebar h2 {
-  margin: 1.5rem 0 0.75rem;
+.sidebar-toggle {
+  position: fixed;
+  top: 1rem;
+  left: 1rem;
+  z-index: 10;
+  width: 2.25rem;
+  height: 2.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 6px;
+  border: 1px solid #2a2d35;
+  background: rgba(30, 33, 41, 0.85);
+  color: #e6e6e6;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.accordion-section + .accordion-section {
+  margin-top: 0.5rem;
+}
+
+.accordion-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0;
+  border: none;
+  background: none;
   font-size: 0.9rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: #9aa0aa;
+  cursor: pointer;
 }
 
-.sidebar h2:first-child {
-  margin-top: 0;
+.accordion-chevron {
+  color: #9aa0aa;
+}
+
+.accordion-content {
+  margin-top: 0.5rem;
 }
 
 .scene-list {

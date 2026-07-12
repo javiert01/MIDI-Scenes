@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import type { RefObject } from 'react';
+import type { ReactNode, RefObject } from 'react';
 import { VisualizerEngine } from '@/engine/VisualizerEngine';
 import { createDefaultScenes } from '@/scenes';
 import type { ParamSpec, ParamValue } from '@/engine/scene';
@@ -9,6 +9,7 @@ function App() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [engine, setEngine] = useState<VisualizerEngine | null>(null);
   const [presentMode, setPresentMode] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -34,11 +35,7 @@ function App() {
 
   return (
     <div className="app-shell">
-      <div className="canvas-stage">
-        <CanvasContainer containerRef={containerRef} engine={engine} />
-        {presentMode && <PresentModeExit onExit={() => setPresentMode(false)} />}
-      </div>
-      {engine && !presentMode && (
+      {engine && !presentMode && sidebarOpen && (
         <aside className="sidebar">
           <PresentModeToggle onEnter={() => setPresentMode(true)} />
           <SceneSwitcher engine={engine} />
@@ -48,18 +45,67 @@ function App() {
           <DevicePicker engine={engine} />
         </aside>
       )}
+      <div className="canvas-stage">
+        <CanvasContainer containerRef={containerRef} engine={engine} />
+        {presentMode && <PresentModeExit onExit={() => setPresentMode(false)} />}
+      </div>
+      {engine && !presentMode && (
+        <SidebarToggle open={sidebarOpen} onToggle={() => setSidebarOpen((open) => !open)} />
+      )}
     </div>
+  );
+}
+
+function SidebarToggle({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      className="sidebar-toggle"
+      onClick={onToggle}
+      aria-label={open ? 'Hide sidebar' : 'Show sidebar'}
+      aria-expanded={open}
+    >
+      <span aria-hidden="true">☰</span>
+    </button>
+  );
+}
+
+function AccordionSection({
+  title,
+  defaultOpen = false,
+  children,
+}: {
+  title: string;
+  defaultOpen?: boolean;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+
+  return (
+    <section className="accordion-section">
+      <button
+        type="button"
+        className="accordion-header"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+      >
+        <span>{title}</span>
+        <span className="accordion-chevron" aria-hidden="true">
+          {open ? '▾' : '▸'}
+        </span>
+      </button>
+      {open && <div className="accordion-content">{children}</div>}
+    </section>
   );
 }
 
 function PresentModeToggle({ onEnter }: { onEnter: () => void }) {
   return (
-    <>
-      <h2>Present Mode</h2>
+    <AccordionSection title="Present Mode">
       <button type="button" className="present-mode-button" onClick={onEnter}>
         Enter present mode
       </button>
-    </>
+    </AccordionSection>
   );
 }
 
@@ -129,8 +175,7 @@ function SceneSwitcher({ engine }: { engine: VisualizerEngine }) {
   );
 
   return (
-    <>
-      <h2>Scenes</h2>
+    <AccordionSection title="Scenes">
       <ul className="scene-list">
         {engine.scenes.map((scene) => (
           <li key={scene.id}>
@@ -144,7 +189,7 @@ function SceneSwitcher({ engine }: { engine: VisualizerEngine }) {
           </li>
         ))}
       </ul>
-    </>
+    </AccordionSection>
   );
 }
 
@@ -158,8 +203,7 @@ function ParamControls({ engine }: { engine: VisualizerEngine }) {
   if (params.length === 0 || !activeSceneId) return null;
 
   return (
-    <>
-      <h2>Parameters</h2>
+    <AccordionSection title="Parameters">
       <div className="param-controls">
         {params.map(({ spec, value }) => (
           <ParamControl
@@ -170,7 +214,7 @@ function ParamControls({ engine }: { engine: VisualizerEngine }) {
           />
         ))}
       </div>
-    </>
+    </AccordionSection>
   );
 }
 
@@ -243,14 +287,13 @@ function ChromaKeyToggle({ engine }: { engine: VisualizerEngine }) {
   );
 
   return (
-    <>
-      <h2>Chroma Key</h2>
+    <AccordionSection title="Chroma Key">
       <ToggleField
         label="Show green area"
         checked={chromaKeyVisible}
         onChange={(checked) => engine.setChromaKeyVisible(checked)}
       />
-    </>
+    </AccordionSection>
   );
 }
 
@@ -261,8 +304,7 @@ function ResolutionPicker({ engine }: { engine: VisualizerEngine }) {
   );
 
   return (
-    <>
-      <h2>Resolution</h2>
+    <AccordionSection title="Resolution">
       <ul className="scene-list">
         {engine.resolutionPresets.map((preset) => (
           <li key={preset}>
@@ -276,7 +318,7 @@ function ResolutionPicker({ engine }: { engine: VisualizerEngine }) {
           </li>
         ))}
       </ul>
-    </>
+    </AccordionSection>
   );
 }
 
@@ -312,8 +354,7 @@ function DevicePicker({ engine }: { engine: VisualizerEngine }) {
   );
 
   return (
-    <>
-      <h2>MIDI Device</h2>
+    <AccordionSection title="MIDI Device" defaultOpen>
       <ActivityIndicator engine={engine} />
       {devices.length === 0 ? (
         <p className="device-empty">No Device connected</p>
@@ -332,7 +373,7 @@ function DevicePicker({ engine }: { engine: VisualizerEngine }) {
           ))}
         </ul>
       )}
-    </>
+    </AccordionSection>
   );
 }
 
