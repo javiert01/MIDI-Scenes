@@ -48,11 +48,13 @@ export class StarfieldScene implements Scene {
 
   private stars: Star[] = [];
   private burstUntilElapsed = 0;
+  private burstMultiplier = 1;
 
   setup(ctx: SceneContext): void {
     const count = Number(ctx.params.starCount ?? DEFAULT_STAR_COUNT);
     this.stars = Array.from({ length: count }, () => spawnStar(ctx.width, ctx.height));
     this.burstUntilElapsed = 0;
+    this.burstMultiplier = 1;
   }
 
   update(ctx: SceneContext): void {
@@ -86,7 +88,8 @@ export class StarfieldScene implements Scene {
     }
   }
 
-  onNoteOn(_event: NoteEvent, ctx: SceneContext): void {
+  onNoteOn(event: NoteEvent, ctx: SceneContext): void {
+    this.burstMultiplier = 1 + event.velocity * (NOTE_BURST_MULTIPLIER - 1);
     this.burstUntilElapsed = ctx.elapsed + NOTE_BURST_DURATION_MS;
   }
 
@@ -100,6 +103,6 @@ export class StarfieldScene implements Scene {
 
   private currentSpeed(ctx: SceneContext): number {
     const base = Number(ctx.params.speed ?? DEFAULT_SPEED);
-    return ctx.elapsed < this.burstUntilElapsed ? base * NOTE_BURST_MULTIPLIER : base;
+    return ctx.elapsed < this.burstUntilElapsed ? base * this.burstMultiplier : base;
   }
 }

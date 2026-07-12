@@ -76,3 +76,30 @@
   font-size: 0.85rem;
   margin: 0;
 }
+
+.midi-activity {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.85rem;
+  color: #9aa0aa;
+}
+
+.activity-dot {
+  width: 0.6rem;
+  height: 0.6rem;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: #4a4d55;
+  transition: background-color 0.1s ease-out;
+}
+
+.activity-dot.connected {
+  background: #3fae5a;
+}
+
+.activity-dot.pulsing {
+  background: #7cf29c;
+  box-shadow: 0 0 6px #7cf29c;
+}

@@ -74,6 +74,10 @@ export class VisualizerEngine {
   // Cached so useSyncExternalStore's getSnapshot returns a stable reference
   // between notify() calls instead of a fresh array on every render.
   private cachedDevices: DeviceDescriptor[] = [];
+  // Bumped on every dispatched note so the sidebar activity indicator can
+  // detect "a note just happened" via useSyncExternalStore, without the
+  // engine tracking any note-specific state itself.
+  private noteActivityTick = 0;
 
   constructor(container: HTMLElement, options: VisualizerEngineOptions = {}) {
     this.width = options.width ?? DEFAULT_WIDTH;
@@ -121,6 +125,11 @@ export class VisualizerEngine {
 
   get activeDeviceId(): string | null {
     return this.selectedDeviceId;
+  }
+
+  /** Bumped on every dispatched note-on/off; sidebar can diff it to flash an activity indicator. */
+  get activityTick(): number {
+    return this.noteActivityTick;
   }
 
   /** Switches the Active Scene: tears down the outgoing Scene, sets up the incoming one. */
@@ -222,6 +231,8 @@ export class VisualizerEngine {
     } else {
       this.activeScene.onNoteOff(parsed.event, ctx);
     }
+    this.noteActivityTick += 1;
+    this.notify();
   }
 
   private buildContext(elapsed: number, deltaTime: number): SceneContext {

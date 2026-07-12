@@ -562,3 +562,71 @@ describe('VisualizerEngine MIDI: Device enumeration, selection, dispatch', () =>
     expect(engine.activeDeviceId).toBe('dev-b');
   });
 });
+
+describe('VisualizerEngine MIDI: activity tick', () => {
+  const deviceA: MidiInputLike = { id: 'dev-a', name: 'Keyboard A' };
+
+  it('bumps activityTick and notifies subscribers when a note-on dispatches', async () => {
+    const { factory } = stubP5Factory();
+    const container = document.createElement('div');
+    const midi = new FakeMidiAccess([deviceA]);
+    const sceneA = new FakeScene('a', 'Scene A');
+
+    const engine = new VisualizerEngine(container, {
+      createP5: factory,
+      createMidi: fakeMidiFactory(midi),
+      storage: new FakeStorage(),
+      scenes: [sceneA],
+    });
+    await flushMicrotasks();
+    const tickBefore = engine.activityTick;
+    const listener = vi.fn();
+    engine.subscribe(listener);
+
+    midi.emit('dev-a', [0x90, 60, 100]);
+
+    expect(engine.activityTick).toBe(tickBefore + 1);
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  it('bumps activityTick on note-off dispatch too', async () => {
+    const { factory } = stubP5Factory();
+    const container = document.createElement('div');
+    const midi = new FakeMidiAccess([deviceA]);
+    const sceneA = new FakeScene('a', 'Scene A');
+
+    const engine = new VisualizerEngine(container, {
+      createP5: factory,
+      createMidi: fakeMidiFactory(midi),
+      storage: new FakeStorage(),
+      scenes: [sceneA],
+    });
+    await flushMicrotasks();
+    const tickBefore = engine.activityTick;
+
+    midi.emit('dev-a', [0x80, 60, 0]);
+
+    expect(engine.activityTick).toBe(tickBefore + 1);
+  });
+
+  it("does not bump activityTick for messages from a Device that isn't selected", async () => {
+    const deviceB: MidiInputLike = { id: 'dev-b', name: 'Keyboard B' };
+    const { factory } = stubP5Factory();
+    const container = document.createElement('div');
+    const midi = new FakeMidiAccess([deviceA, deviceB]);
+    const sceneA = new FakeScene('a', 'Scene A');
+
+    const engine = new VisualizerEngine(container, {
+      createP5: factory,
+      createMidi: fakeMidiFactory(midi),
+      storage: new FakeStorage(),
+      scenes: [sceneA],
+    });
+    await flushMicrotasks();
+    const tickBefore = engine.activityTick;
+
+    midi.emit('dev-b', [0x90, 60, 100]);
+
+    expect(engine.activityTick).toBe(tickBefore);
+  });
+});
