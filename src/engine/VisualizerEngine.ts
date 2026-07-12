@@ -26,7 +26,18 @@ function presetIdForDimensions(width: number, height: number): ResolutionPresetI
 const BACKGROUND_GRAY = 10;
 const CHROMA_KEY_GREEN: [number, number, number] = [0, 177, 64];
 
-const DEVICE_STORAGE_KEY = 'midi-visualizer:device-id';
+/** Single versioned key holding the whole remembered setup (Scene, params, Device, etc). */
+export const STORAGE_KEY = 'midiviz.v1';
+
+/** Shape written to/read from `STORAGE_KEY`. Device is remembered by name, not id. */
+export interface PersistedStateV1 {
+  version: 1;
+  activeSceneId: string | null;
+  paramValues: Record<string, Record<string, ParamValue>>;
+  deviceName: string | null;
+  resolutionPreset: ResolutionPresetId;
+  chromaKeyVisible: boolean;
+}
 
 export const defaultP5Factory: P5Factory = (sketch, node) =>
   new p5(sketch, node) as unknown as P5Like;
@@ -115,6 +126,11 @@ export class VisualizerEngine {
   private readonly storage?: Storage;
   private midiAccess: MidiAccessLike | null = null;
   private selectedDeviceId: string | null = null;
+  // The user's remembered Device preference, by name: set on an explicit
+  // selectDevice()/restore() call, consulted whenever Devices (re)connect. A
+  // hot-unplug never clears this, so the preference survives the Device
+  // being temporarily absent (see unwireActiveDevice).
+  private rememberedDeviceName: string | null = null;
   private unsubscribeMessage: (() => void) | null = null;
   private unsubscribeDeviceChange: (() => void) | null = null;
   // Cached so useSyncExternalStore's getSnapshot returns a stable reference
@@ -152,8 +168,18 @@ export class VisualizerEngine {
       p.setup = () => {
         p.createCanvas(this.width, this.height);
         this.lastFrameMillis = p.millis();
-        const [firstScene] = this.registry.list();
-        if (firstScene) this.activateScene(firstScene);
+        const raw = this.storage?.getItem(STORAGE_KEY);
+        if (raw) {
+          try {
+            this.restore(JSON.parse(raw));
+          } catch {
+            // Corrupt persisted state; fall through to defaults below.
+          }
+        }
+        if (!this.activeScene) {
+          const [firstScene] = this.registry.list();
+          if (firstScene) this.activateScene(firstScene);
+        }
       };
       p.draw = () => {
         this.renderFrame(p);
@@ -236,23 +262,15 @@ export class VisualizerEngine {
     values[key] = clamped;
 
     if (scene === this.activeScene) this.cachedParams = this.computeActiveParams();
+    this.persist();
     this.notify();
   }
 
   /** Resizes the internal render buffer to `id`'s dimensions. Never recreates the canvas. */
   setResolutionPreset(id: ResolutionPresetId): void {
-    const preset = RESOLUTION_PRESETS[id];
-    if (!preset) return;
-    if (id === this.resolutionPresetState) return;
-
-    this.resolutionPresetState = id;
-    this.widthState = preset.width;
-    this.heightState = preset.height;
-    ({
-      chromaKeyHeight: this.chromaKeyHeightState,
-      visualizationHeight: this.visualizationHeightState,
-    } = this.splitHeight(preset.height));
-    this.p.resizeCanvas(preset.width, preset.height);
+    if (!RESOLUTION_PRESETS[id]) return;
+    if (!this.applyResolutionPreset(id)) return;
+    this.persist();
     this.notify();
   }
 
@@ -262,12 +280,14 @@ export class VisualizerEngine {
     const scene = this.registry.get(id);
     if (!scene) return;
     this.activateScene(scene);
+    this.persist();
   }
 
   /** Shows or hides the Chroma Key area at engine level, affecting all Scenes uniformly. */
   setChromaKeyVisible(visible: boolean): void {
     if (visible === this.chromaKeyVisibleState) return;
     this.chromaKeyVisibleState = visible;
+    this.persist();
     this.notify();
   }
 
@@ -275,9 +295,70 @@ export class VisualizerEngine {
   selectDevice(id: string): void {
     if (!this.midiAccess) return;
     if (id === this.selectedDeviceId) return;
-    const exists = this.midiAccess.inputs.some((input) => input.id === id);
-    if (!exists) return;
+    const input = this.midiAccess.inputs.find((candidate) => candidate.id === id);
+    if (!input) return;
     this.wireDevice(id);
+    this.rememberedDeviceName = input.name;
+    this.persist();
+    this.notify();
+  }
+
+  /** Snapshots the whole remembered setup. Pairs with `restore()` to round-trip via storage. */
+  serialize(): PersistedStateV1 {
+    const paramValues: Record<string, Record<string, ParamValue>> = {};
+    for (const [sceneId, values] of this.paramValues) paramValues[sceneId] = { ...values };
+    return {
+      version: 1,
+      activeSceneId: this.activeScene?.id ?? null,
+      paramValues,
+      deviceName: this.rememberedDeviceName,
+      resolutionPreset: this.resolutionPresetState,
+      chromaKeyVisible: this.chromaKeyVisibleState,
+    };
+  }
+
+  /** Applies a persisted snapshot: params clamp to current Scene schemas, unknown keys/ids/names are dropped. */
+  restore(data: unknown): void {
+    if (typeof data !== 'object' || data === null) return;
+    const state = data as Partial<PersistedStateV1>;
+    if (state.version !== 1) return;
+
+    if (state.paramValues && typeof state.paramValues === 'object') {
+      const savedByScene = state.paramValues as Record<string, unknown>;
+      for (const scene of this.registry.list()) {
+        const saved = savedByScene[scene.id];
+        if (!saved || typeof saved !== 'object') continue;
+        const current = this.paramValues.get(scene.id);
+        if (!current) continue;
+        const savedValues = saved as Record<string, ParamValue>;
+        for (const spec of scene.params) {
+          const value = savedValues[spec.key];
+          if (value === undefined) continue;
+          const clamped = clampParamValue(spec, value);
+          if (clamped !== undefined) current[spec.key] = clamped;
+        }
+      }
+    }
+
+    if (typeof state.chromaKeyVisible === 'boolean') {
+      this.chromaKeyVisibleState = state.chromaKeyVisible;
+    }
+
+    if (
+      typeof state.resolutionPreset === 'string' &&
+      state.resolutionPreset in RESOLUTION_PRESETS
+    ) {
+      this.applyResolutionPreset(state.resolutionPreset as ResolutionPresetId);
+    }
+
+    if (typeof state.activeSceneId === 'string') {
+      const scene = this.registry.get(state.activeSceneId);
+      if (scene && scene !== this.activeScene) this.activateScene(scene);
+    }
+
+    this.applyPreferredDeviceName(typeof state.deviceName === 'string' ? state.deviceName : null);
+
+    this.cachedParams = this.computeActiveParams();
     this.notify();
   }
 
@@ -298,6 +379,21 @@ export class VisualizerEngine {
   private splitHeight(height: number): { chromaKeyHeight: number; visualizationHeight: number } {
     const chromaKeyHeight = height * this.chromaKeyRatio;
     return { chromaKeyHeight, visualizationHeight: height - chromaKeyHeight };
+  }
+
+  /** Resizes the render buffer to `id`'s dimensions; a no-op if already active. Returns whether it changed. */
+  private applyResolutionPreset(id: ResolutionPresetId): boolean {
+    if (id === this.resolutionPresetState) return false;
+    const preset = RESOLUTION_PRESETS[id];
+    this.resolutionPresetState = id;
+    this.widthState = preset.width;
+    this.heightState = preset.height;
+    ({
+      chromaKeyHeight: this.chromaKeyHeightState,
+      visualizationHeight: this.visualizationHeightState,
+    } = this.splitHeight(preset.height));
+    this.p.resizeCanvas(preset.width, preset.height);
+    return true;
   }
 
   private activateScene(scene: Scene): void {
@@ -321,6 +417,22 @@ export class VisualizerEngine {
     this.listeners.forEach((listener) => listener());
   }
 
+  private persist(): void {
+    this.storage?.setItem(STORAGE_KEY, JSON.stringify(this.serialize()));
+  }
+
+  /** Remembers `name` as the Device preference and reconciles against Devices already connected. */
+  private applyPreferredDeviceName(name: string | null): void {
+    this.rememberedDeviceName = name;
+    if (!this.midiAccess) return;
+    const match = name ? this.midiAccess.inputs.find((input) => input.name === name) : undefined;
+    if (match) {
+      if (match.id !== this.selectedDeviceId) this.wireDevice(match.id);
+    } else if (!this.selectedDeviceId) {
+      this.syncDevices();
+    }
+  }
+
   private async initMidi(createMidi: MidiFactory): Promise<void> {
     try {
       this.midiAccess = await createMidi();
@@ -329,11 +441,11 @@ export class VisualizerEngine {
       return;
     }
     this.unsubscribeDeviceChange = this.midiAccess.onDeviceChange(() => this.syncDevices());
-    this.syncDevices(this.storage?.getItem(DEVICE_STORAGE_KEY) ?? undefined);
+    this.syncDevices();
   }
 
   /** Reconciles the active Device against the current Device list (startup + hot-plug). */
-  private syncDevices(preferredId?: string): void {
+  private syncDevices(): void {
     const inputs = this.midiAccess?.inputs ?? [];
     this.cachedDevices = inputs.map(({ id, name }) => ({ id, label: name }));
     const stillPresent = inputs.some((input) => input.id === this.selectedDeviceId);
@@ -342,8 +454,10 @@ export class VisualizerEngine {
     }
 
     if (!this.selectedDeviceId) {
-      const preferred = preferredId && inputs.some((input) => input.id === preferredId);
-      const nextId = preferred ? preferredId : inputs[0]?.id;
+      const preferred = this.rememberedDeviceName
+        ? inputs.find((input) => input.name === this.rememberedDeviceName)
+        : undefined;
+      const nextId = preferred ? preferred.id : inputs[0]?.id;
       if (nextId) this.wireDevice(nextId);
     }
 
@@ -356,9 +470,10 @@ export class VisualizerEngine {
     this.unwireActiveDevice();
     this.selectedDeviceId = id;
     this.unsubscribeMessage = this.midiAccess.onMessage(id, (data) => this.handleRawMessage(data));
-    this.storage?.setItem(DEVICE_STORAGE_KEY, id);
   }
 
+  // Leaves rememberedDeviceName untouched: an unplug is transient, and the
+  // user's preference should survive it (see the field's doc comment).
   private unwireActiveDevice(): void {
     this.unsubscribeMessage?.();
     this.unsubscribeMessage = null;

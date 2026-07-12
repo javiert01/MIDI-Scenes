@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
-import { VisualizerEngine } from '@/engine/VisualizerEngine';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { STORAGE_KEY, VisualizerEngine } from '@/engine/VisualizerEngine';
 import type { P5Factory, P5Like } from '@/engine/types';
 import type { ParamSpec, Scene, SceneContext, NoteEvent } from '@/engine/scene';
 import type { MidiAccessLike, MidiInputLike, MidiMessageHandler } from '@/engine/midiTypes';
@@ -187,6 +187,12 @@ async function flushMicrotasks(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
 }
+
+// Tests that omit `storage` fall back to the real jsdom localStorage; clear
+// it before every test so persisted state can't leak across tests.
+beforeEach(() => {
+  localStorage.clear();
+});
 
 describe('VisualizerEngine', () => {
   it('creates exactly one p5 instance at startup, sized to the default resolution', () => {
@@ -758,12 +764,22 @@ describe('VisualizerEngine MIDI: Device enumeration, selection, dispatch', () =>
     expect(engine.activeDeviceId).toBe('dev-a');
   });
 
-  it('selects the remembered Device on startup when it is still connected', async () => {
+  it('selects the remembered Device (by name) on startup when it is still connected', async () => {
     const { factory } = stubP5Factory();
     const container = document.createElement('div');
     const midi = new FakeMidiAccess([deviceA, deviceB]);
     const storage = new FakeStorage();
-    storage.setItem('midi-visualizer:device-id', 'dev-b');
+    storage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        version: 1,
+        activeSceneId: null,
+        paramValues: {},
+        deviceName: 'Keyboard B',
+        resolutionPreset: '1600x800',
+        chromaKeyVisible: true,
+      }),
+    );
 
     const engine = new VisualizerEngine(container, {
       createP5: factory,
@@ -775,7 +791,7 @@ describe('VisualizerEngine MIDI: Device enumeration, selection, dispatch', () =>
     expect(engine.activeDeviceId).toBe('dev-b');
   });
 
-  it('selectDevice switches the active Device and persists the choice', async () => {
+  it('selectDevice switches the active Device and persists the choice by name', async () => {
     const { factory } = stubP5Factory();
     const container = document.createElement('div');
     const midi = new FakeMidiAccess([deviceA, deviceB]);
@@ -791,7 +807,8 @@ describe('VisualizerEngine MIDI: Device enumeration, selection, dispatch', () =>
     engine.selectDevice('dev-b');
 
     expect(engine.activeDeviceId).toBe('dev-b');
-    expect(storage.getItem('midi-visualizer:device-id')).toBe('dev-b');
+    expect(engine.serialize().deviceName).toBe('Keyboard B');
+    expect(JSON.parse(storage.getItem(STORAGE_KEY)!).deviceName).toBe('Keyboard B');
   });
 
   it("dispatches the selected Device's note-on messages to the Active Scene as a normalized NoteEvent", async () => {
@@ -911,6 +928,246 @@ describe('VisualizerEngine MIDI: Device enumeration, selection, dispatch', () =>
     engine.selectDevice('dev-b');
 
     expect(engine.activeDeviceId).toBe('dev-b');
+  });
+});
+
+describe('VisualizerEngine session persistence (T11)', () => {
+  const deviceA: MidiInputLike = { id: 'dev-a', name: 'Keyboard A' };
+  const deviceB: MidiInputLike = { id: 'dev-b', name: 'Keyboard B' };
+
+  class ParamScene extends FakeScene {
+    readonly params: ParamSpec[] = [
+      { key: 'speed', label: 'Speed', type: 'range', default: 8, min: 1, max: 20 },
+    ];
+  }
+
+  it('serialize() captures active Scene, per-Scene params, Device name, resolution, and chroma key', async () => {
+    const { factory } = stubP5Factory();
+    const container = document.createElement('div');
+    const sceneA = new ParamScene('a', 'Scene A');
+    const sceneB = new FakeScene('b', 'Scene B');
+    const midi = new FakeMidiAccess([deviceA, deviceB]);
+
+    const engine = new VisualizerEngine(container, {
+      createP5: factory,
+      createMidi: fakeMidiFactory(midi),
+      storage: new FakeStorage(),
+      scenes: [sceneA, sceneB],
+    });
+    await flushMicrotasks();
+
+    engine.selectScene('b');
+    engine.setParam('a', 'speed', 15);
+    engine.setResolutionPreset('1920x1080');
+    engine.setChromaKeyVisible(false);
+    engine.selectDevice('dev-b');
+
+    expect(engine.serialize()).toEqual({
+      version: 1,
+      activeSceneId: 'b',
+      paramValues: { a: { speed: 15 }, b: {} },
+      deviceName: 'Keyboard B',
+      resolutionPreset: '1920x1080',
+      chromaKeyVisible: false,
+    });
+  });
+
+  it('restore() round-trips a serialize()d snapshot onto a fresh engine', async () => {
+    const { factory: factoryA } = stubP5Factory();
+    const containerA = document.createElement('div');
+    const sceneA1 = new ParamScene('a', 'Scene A');
+    const sceneB1 = new FakeScene('b', 'Scene B');
+    const midiA = new FakeMidiAccess([deviceA, deviceB]);
+    const source = new VisualizerEngine(containerA, {
+      createP5: factoryA,
+      createMidi: fakeMidiFactory(midiA),
+      storage: new FakeStorage(),
+      scenes: [sceneA1, sceneB1],
+    });
+    await flushMicrotasks();
+    source.selectScene('b');
+    source.setParam('a', 'speed', 15);
+    source.setResolutionPreset('1920x1080');
+    source.setChromaKeyVisible(false);
+    source.selectDevice('dev-b');
+    const snapshot = source.serialize();
+
+    const { factory: factoryB } = stubP5Factory();
+    const containerB = document.createElement('div');
+    const sceneA2 = new ParamScene('a', 'Scene A');
+    const sceneB2 = new FakeScene('b', 'Scene B');
+    const midiB = new FakeMidiAccess([deviceA, deviceB]);
+    const target = new VisualizerEngine(containerB, {
+      createP5: factoryB,
+      createMidi: fakeMidiFactory(midiB),
+      storage: new FakeStorage(),
+      scenes: [sceneA2, sceneB2],
+    });
+    await flushMicrotasks();
+
+    target.restore(snapshot);
+    await flushMicrotasks();
+
+    expect(target.activeSceneId).toBe('b');
+    expect(target.resolutionPreset).toBe('1920x1080');
+    expect(target.chromaKeyVisible).toBe(false);
+    expect(target.activeDeviceId).toBe('dev-b');
+    target.selectScene('a');
+    expect(target.params.find((p) => p.spec.key === 'speed')?.value).toBe(15);
+  });
+
+  it('loads remembered state from storage on construction', async () => {
+    const { factory } = stubP5Factory();
+    const container = document.createElement('div');
+    const sceneA = new ParamScene('a', 'Scene A');
+    const sceneB = new FakeScene('b', 'Scene B');
+    const storage = new FakeStorage();
+    storage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        version: 1,
+        activeSceneId: 'b',
+        paramValues: { a: { speed: 15 } },
+        deviceName: null,
+        resolutionPreset: '1920x1080',
+        chromaKeyVisible: false,
+      }),
+    );
+
+    const engine = new VisualizerEngine(container, {
+      createP5: factory,
+      storage,
+      scenes: [sceneA, sceneB],
+    });
+
+    expect(engine.activeSceneId).toBe('b');
+    expect(engine.resolutionPreset).toBe('1920x1080');
+    expect(engine.chromaKeyVisible).toBe(false);
+    engine.selectScene('a');
+    expect(engine.params.find((p) => p.spec.key === 'speed')?.value).toBe(15);
+  });
+
+  it('restore() clamps param values to the current ParamSpec and drops unknown keys', async () => {
+    const { factory } = stubP5Factory();
+    const container = document.createElement('div');
+    const scene = new ParamScene('a', 'Scene A');
+    const engine = new VisualizerEngine(container, {
+      createP5: factory,
+      storage: new FakeStorage(),
+      scenes: [scene],
+    });
+
+    engine.restore({
+      version: 1,
+      activeSceneId: 'a',
+      paramValues: { a: { speed: 999, notAKey: 'x' } },
+      deviceName: null,
+      resolutionPreset: '1600x800',
+      chromaKeyVisible: true,
+    });
+
+    expect(engine.params.find((p) => p.spec.key === 'speed')?.value).toBe(20);
+    expect(engine.params.some((p) => p.spec.key === 'notAKey')).toBe(false);
+  });
+
+  it('falls back to the first available Device when the remembered Device name is absent, keeping other settings', async () => {
+    const { factory } = stubP5Factory();
+    const container = document.createElement('div');
+    const midi = new FakeMidiAccess([deviceA, deviceB]);
+    const scene = new ParamScene('a', 'Scene A');
+    const storage = new FakeStorage();
+    storage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        version: 1,
+        activeSceneId: 'a',
+        paramValues: { a: { speed: 15 } },
+        deviceName: 'Unplugged Keyboard',
+        resolutionPreset: '1920x1080',
+        chromaKeyVisible: false,
+      }),
+    );
+
+    const engine = new VisualizerEngine(container, {
+      createP5: factory,
+      createMidi: fakeMidiFactory(midi),
+      storage,
+      scenes: [scene],
+    });
+    await flushMicrotasks();
+
+    expect(engine.activeDeviceId).toBe('dev-a');
+    expect(engine.resolutionPreset).toBe('1920x1080');
+    expect(engine.chromaKeyVisible).toBe(false);
+    expect(engine.params.find((p) => p.spec.key === 'speed')?.value).toBe(15);
+  });
+
+  it('unplugging the remembered Device does not erase its name from a later persist', async () => {
+    const { factory } = stubP5Factory();
+    const container = document.createElement('div');
+    const midi = new FakeMidiAccess([deviceA, deviceB]);
+    const scene = new ParamScene('a', 'Scene A');
+    const storage = new FakeStorage();
+
+    const engine = new VisualizerEngine(container, {
+      createP5: factory,
+      createMidi: fakeMidiFactory(midi),
+      storage,
+      scenes: [scene],
+    });
+    await flushMicrotasks();
+    engine.selectDevice('dev-b');
+    expect(engine.serialize().deviceName).toBe('Keyboard B');
+
+    midi.setInputs([deviceA]); // dev-b unplugged; engine falls back to dev-a
+    engine.setParam('a', 'speed', 12); // unrelated mutation triggers a persist
+
+    expect(engine.serialize().deviceName).toBe('Keyboard B');
+    expect(JSON.parse(storage.getItem(STORAGE_KEY)!).deviceName).toBe('Keyboard B');
+  });
+
+  it('an unrecognized Scene id in persisted state is ignored, falling back to the first registered Scene', () => {
+    const { factory } = stubP5Factory();
+    const container = document.createElement('div');
+    const sceneA = new FakeScene('a', 'Scene A');
+    const sceneB = new FakeScene('b', 'Scene B');
+    const storage = new FakeStorage();
+    storage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        version: 1,
+        activeSceneId: 'ghost',
+        paramValues: {},
+        deviceName: null,
+        resolutionPreset: '1600x800',
+        chromaKeyVisible: true,
+      }),
+    );
+
+    const engine = new VisualizerEngine(container, {
+      createP5: factory,
+      storage,
+      scenes: [sceneA, sceneB],
+    });
+
+    expect(engine.activeSceneId).toBe('a');
+  });
+
+  it('ignores corrupt persisted JSON and falls back to defaults', () => {
+    const { factory } = stubP5Factory();
+    const container = document.createElement('div');
+    const sceneA = new FakeScene('a', 'Scene A');
+    const storage = new FakeStorage();
+    storage.setItem(STORAGE_KEY, 'not json{{');
+
+    const engine = new VisualizerEngine(container, {
+      createP5: factory,
+      storage,
+      scenes: [sceneA],
+    });
+
+    expect(engine.activeSceneId).toBe('a');
+    expect(engine.resolutionPreset).toBe('1600x800');
   });
 });
 
