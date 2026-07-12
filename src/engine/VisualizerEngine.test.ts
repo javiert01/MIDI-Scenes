@@ -250,6 +250,89 @@ describe('VisualizerEngine', () => {
   });
 });
 
+describe('VisualizerEngine chroma key toggle', () => {
+  it('defaults to visible', () => {
+    const { factory } = stubP5Factory();
+    const container = document.createElement('div');
+
+    const engine = new VisualizerEngine(container, { createP5: factory });
+
+    expect(engine.chromaKeyVisible).toBe(true);
+  });
+
+  it('setChromaKeyVisible(false) stops painting the green rect, without recreating the canvas', () => {
+    const { factory, getInstance } = stubP5Factory();
+    const container = document.createElement('div');
+    const engine = new VisualizerEngine(container, { createP5: factory });
+    const stub = getInstance();
+
+    engine.setChromaKeyVisible(false);
+    stub.calls = [];
+    stub.draw?.();
+
+    expect(engine.chromaKeyVisible).toBe(false);
+    expect(stub.calls.some((c) => c.name === 'rect')).toBe(false);
+    expect(stub.calls.some((c) => c.name === 'createCanvas')).toBe(false);
+  });
+
+  it('setChromaKeyVisible(true) resumes painting the green rect', () => {
+    const { factory, getInstance } = stubP5Factory();
+    const container = document.createElement('div');
+    const engine = new VisualizerEngine(container, { createP5: factory });
+    const stub = getInstance();
+    engine.setChromaKeyVisible(false);
+
+    engine.setChromaKeyVisible(true);
+    stub.calls = [];
+    stub.draw?.();
+
+    expect(engine.chromaKeyVisible).toBe(true);
+    expect(stub.calls).toContainEqual({
+      name: 'rect',
+      args: [0, engine.visualizationHeight, engine.width, engine.chromaKeyHeight],
+    });
+  });
+
+  it('the visualization area still confines Scenes when the chroma key is hidden', () => {
+    const { factory, getInstance } = stubP5Factory();
+    const container = document.createElement('div');
+    const sceneA = new FakeScene('a', 'Scene A');
+    const engine = new VisualizerEngine(container, { createP5: factory, scenes: [sceneA] });
+    const stub = getInstance();
+
+    engine.setChromaKeyVisible(false);
+    stub.draw?.();
+
+    const ctx = sceneA.update.mock.calls.at(-1)![0] as SceneContext;
+    expect(ctx.chromaKeyHeight).toBe(engine.chromaKeyHeight);
+    expect(ctx.height).toBe(engine.height);
+  });
+
+  it('notifies subscribers when the chroma key visibility changes', () => {
+    const { factory } = stubP5Factory();
+    const container = document.createElement('div');
+    const engine = new VisualizerEngine(container, { createP5: factory });
+    const listener = vi.fn();
+    engine.subscribe(listener);
+
+    engine.setChromaKeyVisible(false);
+
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  it('setting the same visibility again is a no-op notification-wise', () => {
+    const { factory } = stubP5Factory();
+    const container = document.createElement('div');
+    const engine = new VisualizerEngine(container, { createP5: factory });
+    const listener = vi.fn();
+    engine.subscribe(listener);
+
+    engine.setChromaKeyVisible(true);
+
+    expect(listener).not.toHaveBeenCalled();
+  });
+});
+
 describe('VisualizerEngine Scene Registry & switching', () => {
   it('activates the first registered Scene at startup', () => {
     const { factory } = stubP5Factory();

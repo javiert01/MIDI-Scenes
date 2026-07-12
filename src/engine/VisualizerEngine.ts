@@ -95,6 +95,7 @@ export class VisualizerEngine {
   private activeScene: Scene | null = null;
   private sceneStartMillis = 0;
   private lastFrameMillis = 0;
+  private chromaKeyVisibleState = true;
 
   private readonly storage?: Storage;
   private midiAccess: MidiAccessLike | null = null;
@@ -159,6 +160,11 @@ export class VisualizerEngine {
     return this.selectedDeviceId;
   }
 
+  /** Whether the Chroma Key area is painted green. Toggling never recreates the canvas. */
+  get chromaKeyVisible(): boolean {
+    return this.chromaKeyVisibleState;
+  }
+
   /** Bumped on every dispatched note-on/off; sidebar can diff it to flash an activity indicator. */
   get activityTick(): number {
     return this.noteActivityTick;
@@ -192,6 +198,13 @@ export class VisualizerEngine {
     const scene = this.registry.get(id);
     if (!scene) return;
     this.activateScene(scene);
+  }
+
+  /** Shows or hides the Chroma Key area at engine level, affecting all Scenes uniformly. */
+  setChromaKeyVisible(visible: boolean): void {
+    if (visible === this.chromaKeyVisibleState) return;
+    this.chromaKeyVisibleState = visible;
+    this.notify();
   }
 
   /** Selects the single Device the engine binds MIDI message handlers to. */
@@ -312,9 +325,11 @@ export class VisualizerEngine {
 
   private renderFrame(p: P5Like): void {
     p.background(BACKGROUND_GRAY);
-    p.noStroke();
-    p.fill(...CHROMA_KEY_GREEN);
-    p.rect(0, this.visualizationHeight, this.width, this.chromaKeyHeight);
+    if (this.chromaKeyVisibleState) {
+      p.noStroke();
+      p.fill(...CHROMA_KEY_GREEN);
+      p.rect(0, this.visualizationHeight, this.width, this.chromaKeyHeight);
+    }
 
     if (!this.activeScene) return;
 

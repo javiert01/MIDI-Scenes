@@ -30,6 +30,7 @@ function App() {
         <aside className="sidebar">
           <SceneSwitcher engine={engine} />
           <ParamControls engine={engine} />
+          <ChromaKeyToggle engine={engine} />
           <DevicePicker engine={engine} />
         </aside>
       )}
@@ -118,14 +119,11 @@ function ParamControl({
       );
     case 'toggle':
       return (
-        <label className="param-control param-control-toggle">
-          <span className="param-control-label">{spec.label}</span>
-          <input
-            type="checkbox"
-            checked={Boolean(value)}
-            onChange={(event) => onChange(event.target.checked)}
-          />
-        </label>
+        <ToggleField
+          label={spec.label}
+          checked={Boolean(value)}
+          onChange={(checked) => onChange(checked)}
+        />
       );
     case 'color':
       return (
@@ -152,6 +150,45 @@ function ParamControl({
         </label>
       );
   }
+}
+
+function ChromaKeyToggle({ engine }: { engine: VisualizerEngine }) {
+  const chromaKeyVisible = useSyncExternalStore(
+    (onChange) => engine.subscribe(onChange),
+    () => engine.chromaKeyVisible,
+  );
+
+  return (
+    <>
+      <h2>Chroma Key</h2>
+      <ToggleField
+        label="Show green area"
+        checked={chromaKeyVisible}
+        onChange={(checked) => engine.setChromaKeyVisible(checked)}
+      />
+    </>
+  );
+}
+
+function ToggleField({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className="param-control param-control-toggle">
+      <span className="param-control-label">{label}</span>
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+      />
+    </label>
+  );
 }
 
 function DevicePicker({ engine }: { engine: VisualizerEngine }) {
