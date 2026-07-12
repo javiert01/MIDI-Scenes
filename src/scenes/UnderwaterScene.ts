@@ -12,6 +12,8 @@ interface Bounds {
 
 const DEFAULT_FISH_COUNT = 20;
 const DEFAULT_JELLYFISH_COUNT = 10;
+const DEFAULT_CREATURE_SPEED = 1;
+const DEFAULT_WATER_COLOR = '#145573';
 
 const PI = Math.PI;
 const TWO_PI = Math.PI * 2;
@@ -172,9 +174,14 @@ function spawnFish({ width, visHeight }: Bounds): Fish {
   };
 }
 
-function updateFish(fish: Fish, frame: number, { width, visHeight }: Bounds): void {
+function updateFish(
+  fish: Fish,
+  frame: number,
+  { width, visHeight }: Bounds,
+  speedScale: number,
+): void {
   fish.boost *= BOOST_DECAY;
-  const speed = fish.speed * (1 + fish.boost * FISH_BOOST_SPEED_SCALE);
+  const speed = fish.speed * speedScale * (1 + fish.boost * FISH_BOOST_SPEED_SCALE);
 
   switch (fish.pattern) {
     case 'traveling': {
@@ -282,12 +289,18 @@ function spawnJellyfish({ width, visHeight }: Bounds): Jellyfish {
   };
 }
 
-function updateJellyfish(jelly: Jellyfish, frame: number, { width, visHeight }: Bounds): void {
+function updateJellyfish(
+  jelly: Jellyfish,
+  frame: number,
+  { width, visHeight }: Bounds,
+  speedScale: number,
+): void {
   jelly.boost *= BOOST_DECAY;
   const pulseSpeed = jelly.pulseSpeed * (1 + jelly.boost * JELLYFISH_BOOST_PULSE_SCALE);
+  const speed = jelly.speed * speedScale;
 
-  jelly.x += Math.cos(jelly.direction) * jelly.speed;
-  jelly.y += Math.sin(jelly.direction) * jelly.speed * 0.5;
+  jelly.x += Math.cos(jelly.direction) * speed;
+  jelly.y += Math.sin(jelly.direction) * speed * 0.5;
   jelly.y += Math.sin(frame * jelly.bobSpeed + jelly.bobOffset) * 0.5;
 
   if (frame % 200 === 0) jelly.direction += randomRange(-PI / 6, PI / 6);
@@ -377,12 +390,28 @@ function drawCrystal(p: P5Like, crystal: CrystalShaft): void {
   p.rect(crystal.x, crystal.y, 6, crystal.length);
 }
 
-function drawWaterBackground(p: P5Like, { width, visHeight }: Bounds): void {
+/** Parses a `#RRGGBB` hex color; falls back to the default water color when malformed. */
+function hexToRgb(hex: string): RgbColor {
+  const match = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
+  if (!match) return hexToRgb(DEFAULT_WATER_COLOR);
+  return [parseInt(match[1], 16), parseInt(match[2], 16), parseInt(match[3], 16)];
+}
+
+/** Darkens the surface color toward a deep-water tone, matching the original hardcoded gradient. */
+/** Grows or shrinks `items` in place to match `targetLength`, spawning new entries as needed. */
+function resizePopulation<T>(items: T[], targetLength: number, spawn: () => T): void {
+  while (items.length < targetLength) items.push(spawn());
+  if (items.length > targetLength) items.length = targetLength;
+}
+
+function drawWaterBackground(p: P5Like, { width, visHeight }: Bounds, surface: RgbColor): void {
+  const [r0, g0, b0] = surface;
+  const [r1, g1, b1] = [r0 * 0.25, g0 * 0.41, b0 * 0.48];
   for (let y = 0; y < visHeight; y++) {
     const inter = visHeight > 0 ? y / visHeight : 0;
-    const r = 20 + (5 - 20) * inter;
-    const g = 85 + (35 - 85) * inter;
-    const b = 115 + (55 - 115) * inter;
+    const r = r0 + (r1 - r0) * inter;
+    const g = g0 + (g1 - g0) * inter;
+    const b = b0 + (b1 - b0) * inter;
     p.stroke(r, g, b);
     p.line(0, y, width, y);
   }
@@ -411,6 +440,21 @@ export class UnderwaterScene implements Scene {
       max: 20,
       step: 1,
     },
+    {
+      key: 'creatureSpeed',
+      label: 'Creature Speed',
+      type: 'range',
+      default: DEFAULT_CREATURE_SPEED,
+      min: 0.25,
+      max: 3,
+      step: 0.25,
+    },
+    {
+      key: 'waterColor',
+      label: 'Water Color',
+      type: 'color',
+      default: DEFAULT_WATER_COLOR,
+    },
   ];
 
   private fish: Fish[] = [];
@@ -436,19 +480,26 @@ export class UnderwaterScene implements Scene {
 
   update(ctx: SceneContext): void {
     const bounds = boundsOf(ctx);
+    const speedScale = Number(ctx.params.creatureSpeed ?? DEFAULT_CREATURE_SPEED);
+    const fishCount = Number(ctx.params.fishCount ?? DEFAULT_FISH_COUNT);
+    const jellyfishCount = Number(ctx.params.jellyfishCount ?? DEFAULT_JELLYFISH_COUNT);
     this.frame += 1;
 
-    for (const fish of this.fish) updateFish(fish, this.frame, bounds);
-    for (const jelly of this.jellyfish) updateJellyfish(jelly, this.frame, bounds);
+    resizePopulation(this.fish, fishCount, () => spawnFish(bounds));
+    resizePopulation(this.jellyfish, jellyfishCount, () => spawnJellyfish(bounds));
+
+    for (const fish of this.fish) updateFish(fish, this.frame, bounds, speedScale);
+    for (const jelly of this.jellyfish) updateJellyfish(jelly, this.frame, bounds, speedScale);
     for (const crystal of this.crystals) updateCrystal(crystal, bounds);
   }
 
   draw(ctx: SceneContext): void {
     const { p } = ctx;
     const bounds = boundsOf(ctx);
+    const waterColor = hexToRgb(String(ctx.params.waterColor ?? DEFAULT_WATER_COLOR));
 
     p.push();
-    drawWaterBackground(p, bounds);
+    drawWaterBackground(p, bounds, waterColor);
 
     for (const crystal of this.crystals) drawCrystal(p, crystal);
     for (const jelly of this.jellyfish) drawJellyfish(p, jelly, this.frame);

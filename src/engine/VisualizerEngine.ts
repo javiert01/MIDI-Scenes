@@ -44,6 +44,36 @@ function defaultParamValues(specs: ParamSpec[]): Record<string, ParamValue> {
   return values;
 }
 
+/** Validates `value` against `spec`, clamping range values to [min, max] and snapping to `step`. */
+function clampParamValue(spec: ParamSpec, value: ParamValue): ParamValue | undefined {
+  switch (spec.type) {
+    case 'range': {
+      if (typeof value !== 'number' || Number.isNaN(value)) return undefined;
+      let clamped = value;
+      if (spec.step) {
+        const base = spec.min ?? 0;
+        clamped = base + Math.round((clamped - base) / spec.step) * spec.step;
+      }
+      if (spec.min !== undefined) clamped = Math.max(spec.min, clamped);
+      if (spec.max !== undefined) clamped = Math.min(spec.max, clamped);
+      return clamped;
+    }
+    case 'toggle':
+      return typeof value === 'boolean' ? value : undefined;
+    case 'color':
+      return typeof value === 'string' && /^#[0-9a-fA-F]{6}$/.test(value) ? value : undefined;
+    case 'select':
+      return typeof value === 'string' && spec.options?.some((option) => option.value === value)
+        ? value
+        : undefined;
+  }
+}
+
+export interface ActiveParam {
+  spec: ParamSpec;
+  value: ParamValue;
+}
+
 /**
  * Framework-agnostic core that owns the single p5 instance and the Scene
  * Registry. Created once at startup; Scene switching swaps which Scene the
@@ -74,6 +104,8 @@ export class VisualizerEngine {
   // Cached so useSyncExternalStore's getSnapshot returns a stable reference
   // between notify() calls instead of a fresh array on every render.
   private cachedDevices: DeviceDescriptor[] = [];
+  // Same reasoning as cachedDevices, for the Active Scene's param specs + current values.
+  private cachedParams: ActiveParam[] = [];
   // Bumped on every dispatched note so the sidebar activity indicator can
   // detect "a note just happened" via useSyncExternalStore, without the
   // engine tracking any note-specific state itself.
@@ -132,6 +164,28 @@ export class VisualizerEngine {
     return this.noteActivityTick;
   }
 
+  /** The Active Scene's ParamSpecs paired with their current values, for the sidebar to render. */
+  get params(): ActiveParam[] {
+    return this.cachedParams;
+  }
+
+  /** Validates/clamps `value` against the Scene's ParamSpec for `key`; invalid input is a no-op. */
+  setParam(sceneId: string, key: string, value: ParamValue): void {
+    const scene = this.registry.get(sceneId);
+    if (!scene) return;
+    const spec = scene.params.find((paramSpec) => paramSpec.key === key);
+    if (!spec) return;
+    const clamped = clampParamValue(spec, value);
+    if (clamped === undefined) return;
+
+    const values = this.paramValues.get(sceneId);
+    if (!values) return;
+    values[key] = clamped;
+
+    if (scene === this.activeScene) this.cachedParams = this.computeActiveParams();
+    this.notify();
+  }
+
   /** Switches the Active Scene: tears down the outgoing Scene, sets up the incoming one. */
   selectScene(id: string): void {
     if (id === this.activeScene?.id) return;
@@ -170,7 +224,15 @@ export class VisualizerEngine {
     this.sceneStartMillis = this.p.millis();
     this.lastFrameMillis = this.sceneStartMillis;
     scene.setup(this.buildContext(0, 0));
+    this.cachedParams = this.computeActiveParams();
     this.notify();
+  }
+
+  private computeActiveParams(): ActiveParam[] {
+    const scene = this.activeScene;
+    if (!scene) return [];
+    const values = this.paramValues.get(scene.id) ?? {};
+    return scene.params.map((spec) => ({ spec, value: values[spec.key] ?? spec.default }));
   }
 
   private notify(): void {

@@ -71,6 +71,48 @@
   background: #26314a;
 }
 
+.param-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.param-control {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+}
+
+.param-control-label {
+  display: flex;
+  justify-content: space-between;
+  color: #e6e6e6;
+}
+
+.param-control-value {
+  color: #9aa0aa;
+}
+
+.param-control input[type='range'] {
+  width: 100%;
+}
+
+.param-control-toggle {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.param-control select {
+  width: 100%;
+  padding: 0.4rem 0.5rem;
+  border-radius: 6px;
+  border: 1px solid #2a2d35;
+  background: #1e2129;
+  color: inherit;
+}
+
 .device-empty {
   color: #9aa0aa;
   font-size: 0.85rem;

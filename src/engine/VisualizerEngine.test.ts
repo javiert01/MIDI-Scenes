@@ -394,6 +394,160 @@ describe('VisualizerEngine Scene Registry & switching', () => {
   });
 });
 
+describe('VisualizerEngine params: validation/clamping', () => {
+  class ParamScene extends FakeScene {
+    readonly params: ParamSpec[] = [
+      { key: 'speed', label: 'Speed', type: 'range', default: 8, min: 1, max: 20 },
+      { key: 'volume', label: 'Volume', type: 'range', default: 0, min: 0, max: 10, step: 2 },
+      { key: 'glow', label: 'Glow', type: 'toggle', default: false },
+      { key: 'color', label: 'Color', type: 'color', default: '#112233' },
+      {
+        key: 'pattern',
+        label: 'Pattern',
+        type: 'select',
+        default: 'a',
+        options: [
+          { value: 'a', label: 'A' },
+          { value: 'b', label: 'B' },
+        ],
+      },
+    ];
+  }
+
+  function setUpParamEngine() {
+    const { factory, getInstance } = stubP5Factory();
+    const container = document.createElement('div');
+    const scene = new ParamScene('p', 'Param Scene');
+    const engine = new VisualizerEngine(container, { createP5: factory, scenes: [scene] });
+    return { engine, scene, stub: getInstance() };
+  }
+
+  it('setParam updates a range value within bounds and surfaces it in ctx.params', () => {
+    const { engine, scene, stub } = setUpParamEngine();
+
+    engine.setParam('p', 'speed', 12);
+    stub.draw?.();
+
+    const ctx = scene.update.mock.calls.at(-1)![0] as SceneContext;
+    expect(ctx.params.speed).toBe(12);
+  });
+
+  it('setParam clamps a range value above max down to max', () => {
+    const { engine, scene, stub } = setUpParamEngine();
+
+    engine.setParam('p', 'speed', 999);
+    stub.draw?.();
+
+    const ctx = scene.update.mock.calls.at(-1)![0] as SceneContext;
+    expect(ctx.params.speed).toBe(20);
+  });
+
+  it('setParam clamps a range value below min up to min', () => {
+    const { engine, scene, stub } = setUpParamEngine();
+
+    engine.setParam('p', 'speed', -50);
+    stub.draw?.();
+
+    const ctx = scene.update.mock.calls.at(-1)![0] as SceneContext;
+    expect(ctx.params.speed).toBe(1);
+  });
+
+  it('setParam snaps a range value to the nearest step', () => {
+    const { engine, scene, stub } = setUpParamEngine();
+
+    engine.setParam('p', 'volume', 5);
+    stub.draw?.();
+
+    const ctx = scene.update.mock.calls.at(-1)![0] as SceneContext;
+    expect(ctx.params.volume).toBe(6);
+  });
+
+  it('setParam rejects a non-numeric value for a range param', () => {
+    const { engine, scene, stub } = setUpParamEngine();
+
+    engine.setParam('p', 'speed', 'fast');
+    stub.draw?.();
+
+    const ctx = scene.update.mock.calls.at(-1)![0] as SceneContext;
+    expect(ctx.params.speed).toBe(8);
+  });
+
+  it('setParam rejects an unknown param key', () => {
+    const { engine, scene, stub } = setUpParamEngine();
+
+    engine.setParam('p', 'notAKey', 42);
+    stub.draw?.();
+
+    const ctx = scene.update.mock.calls.at(-1)![0] as SceneContext;
+    expect(ctx.params).not.toHaveProperty('notAKey');
+  });
+
+  it('setParam rejects an unknown Scene id', () => {
+    const { engine, scene, stub } = setUpParamEngine();
+
+    engine.setParam('nope', 'speed', 12);
+    stub.draw?.();
+
+    const ctx = scene.update.mock.calls.at(-1)![0] as SceneContext;
+    expect(ctx.params.speed).toBe(8);
+  });
+
+  it('setParam accepts a valid select option and rejects an invalid one', () => {
+    const { engine, scene, stub } = setUpParamEngine();
+
+    engine.setParam('p', 'pattern', 'b');
+    stub.draw?.();
+    expect((scene.update.mock.calls.at(-1)![0] as SceneContext).params.pattern).toBe('b');
+
+    engine.setParam('p', 'pattern', 'z');
+    stub.draw?.();
+    expect((scene.update.mock.calls.at(-1)![0] as SceneContext).params.pattern).toBe('b');
+  });
+
+  it('setParam accepts a valid hex color and rejects a malformed one', () => {
+    const { engine, scene, stub } = setUpParamEngine();
+
+    engine.setParam('p', 'color', '#ff00aa');
+    stub.draw?.();
+    expect((scene.update.mock.calls.at(-1)![0] as SceneContext).params.color).toBe('#ff00aa');
+
+    engine.setParam('p', 'color', 'not-a-color');
+    stub.draw?.();
+    expect((scene.update.mock.calls.at(-1)![0] as SceneContext).params.color).toBe('#ff00aa');
+  });
+
+  it('setParam rejects a non-boolean value for a toggle param', () => {
+    const { engine, scene, stub } = setUpParamEngine();
+
+    engine.setParam('p', 'glow', 'yes');
+    stub.draw?.();
+
+    const ctx = scene.update.mock.calls.at(-1)![0] as SceneContext;
+    expect(ctx.params.glow).toBe(false);
+  });
+
+  it('exposes the Active Scene ParamSpecs paired with current values via engine.params', () => {
+    const { engine } = setUpParamEngine();
+
+    engine.setParam('p', 'speed', 15);
+
+    expect(engine.params.find((p) => p.spec.key === 'speed')).toEqual({
+      spec: { key: 'speed', label: 'Speed', type: 'range', default: 8, min: 1, max: 20 },
+      value: 15,
+    });
+  });
+
+  it('notifies subscribers when a param changes', () => {
+    const { engine } = setUpParamEngine();
+    const listener = vi.fn();
+    engine.subscribe(listener);
+
+    engine.setParam('p', 'speed', 15);
+
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('VisualizerEngine MIDI: Device enumeration, selection, dispatch', () => {
   const deviceA: MidiInputLike = { id: 'dev-a', name: 'Keyboard A' };
   const deviceB: MidiInputLike = { id: 'dev-b', name: 'Keyboard B' };

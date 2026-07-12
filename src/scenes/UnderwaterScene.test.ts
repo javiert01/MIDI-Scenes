@@ -90,6 +90,18 @@ describe('UnderwaterScene', () => {
     expect(jellyfishOf(scene)).toHaveLength(3);
   });
 
+  it('grows or shrinks fish and jellyfish populations live as params change on update', () => {
+    const scene = new UnderwaterScene();
+    const ctx = makeCtx({ params: { fishCount: 2, jellyfishCount: 2 } });
+    scene.setup(ctx);
+
+    ctx.params = { fishCount: 5, jellyfishCount: 1 };
+    scene.update(ctx);
+
+    expect(fishOf(scene)).toHaveLength(5);
+    expect(jellyfishOf(scene)).toHaveLength(1);
+  });
+
   it('confines spawned fish and jellyfish to the visualization area, not the chroma key band', () => {
     const scene = new UnderwaterScene();
     const ctx = makeCtx({ width: 900, height: 900, chromaKeyHeight: 300 });

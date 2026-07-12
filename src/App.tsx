@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { VisualizerEngine } from '@/engine/VisualizerEngine';
 import { createDefaultScenes } from '@/scenes';
+import type { ParamSpec, ParamValue } from '@/engine/scene';
 import './App.css';
 
 function App() {
@@ -28,6 +29,7 @@ function App() {
       {engine && (
         <aside className="sidebar">
           <SceneSwitcher engine={engine} />
+          <ParamControls engine={engine} />
           <DevicePicker engine={engine} />
         </aside>
       )}
@@ -59,6 +61,97 @@ function SceneSwitcher({ engine }: { engine: VisualizerEngine }) {
       </ul>
     </>
   );
+}
+
+function ParamControls({ engine }: { engine: VisualizerEngine }) {
+  const params = useSyncExternalStore(
+    (onChange) => engine.subscribe(onChange),
+    () => engine.params,
+  );
+  const activeSceneId = engine.activeSceneId;
+
+  if (params.length === 0 || !activeSceneId) return null;
+
+  return (
+    <>
+      <h2>Parameters</h2>
+      <div className="param-controls">
+        {params.map(({ spec, value }) => (
+          <ParamControl
+            key={spec.key}
+            spec={spec}
+            value={value}
+            onChange={(next) => engine.setParam(activeSceneId, spec.key, next)}
+          />
+        ))}
+      </div>
+    </>
+  );
+}
+
+function ParamControl({
+  spec,
+  value,
+  onChange,
+}: {
+  spec: ParamSpec;
+  value: ParamValue;
+  onChange: (value: ParamValue) => void;
+}) {
+  switch (spec.type) {
+    case 'range':
+      return (
+        <label className="param-control">
+          <span className="param-control-label">
+            {spec.label}
+            <span className="param-control-value">{value}</span>
+          </span>
+          <input
+            type="range"
+            min={spec.min}
+            max={spec.max}
+            step={spec.step ?? 1}
+            value={Number(value)}
+            onChange={(event) => onChange(event.target.valueAsNumber)}
+          />
+        </label>
+      );
+    case 'toggle':
+      return (
+        <label className="param-control param-control-toggle">
+          <span className="param-control-label">{spec.label}</span>
+          <input
+            type="checkbox"
+            checked={Boolean(value)}
+            onChange={(event) => onChange(event.target.checked)}
+          />
+        </label>
+      );
+    case 'color':
+      return (
+        <label className="param-control param-control-toggle">
+          <span className="param-control-label">{spec.label}</span>
+          <input
+            type="color"
+            value={String(value)}
+            onChange={(event) => onChange(event.target.value)}
+          />
+        </label>
+      );
+    case 'select':
+      return (
+        <label className="param-control">
+          <span className="param-control-label">{spec.label}</span>
+          <select value={String(value)} onChange={(event) => onChange(event.target.value)}>
+            {spec.options?.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      );
+  }
 }
 
 function DevicePicker({ engine }: { engine: VisualizerEngine }) {
