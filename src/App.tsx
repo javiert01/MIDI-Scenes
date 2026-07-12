@@ -8,6 +8,7 @@ import './App.css';
 function App() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [engine, setEngine] = useState<VisualizerEngine | null>(null);
+  const [presentMode, setPresentMode] = useState(false);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -22,13 +23,24 @@ function App() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!presentMode) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setPresentMode(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [presentMode]);
+
   return (
     <div className="app-shell">
       <div className="canvas-stage">
         <CanvasContainer containerRef={containerRef} engine={engine} />
+        {presentMode && <PresentModeExit onExit={() => setPresentMode(false)} />}
       </div>
-      {engine && (
+      {engine && !presentMode && (
         <aside className="sidebar">
+          <PresentModeToggle onEnter={() => setPresentMode(true)} />
           <SceneSwitcher engine={engine} />
           <ParamControls engine={engine} />
           <ChromaKeyToggle engine={engine} />
@@ -37,6 +49,47 @@ function App() {
         </aside>
       )}
     </div>
+  );
+}
+
+function PresentModeToggle({ onEnter }: { onEnter: () => void }) {
+  return (
+    <>
+      <h2>Present Mode</h2>
+      <button type="button" className="present-mode-button" onClick={onEnter}>
+        Enter present mode
+      </button>
+    </>
+  );
+}
+
+const PRESENT_EXIT_IDLE_MS = 2000;
+
+function PresentModeExit({ onExit }: { onExit: () => void }) {
+  const [visible, setVisible] = useState(true);
+
+  useEffect(() => {
+    let timeout = setTimeout(() => setVisible(false), PRESENT_EXIT_IDLE_MS);
+    const onMouseMove = () => {
+      setVisible(true);
+      clearTimeout(timeout);
+      timeout = setTimeout(() => setVisible(false), PRESENT_EXIT_IDLE_MS);
+    };
+    window.addEventListener('mousemove', onMouseMove);
+    return () => {
+      clearTimeout(timeout);
+      window.removeEventListener('mousemove', onMouseMove);
+    };
+  }, []);
+
+  return (
+    <button
+      type="button"
+      className={`present-mode-exit${visible ? ' visible' : ''}`}
+      onClick={onExit}
+    >
+      Exit present mode
+    </button>
   );
 }
 
