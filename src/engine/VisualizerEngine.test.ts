@@ -51,6 +51,30 @@ class StubP5 implements P5Like {
     this.calls.push({ name: 'line', args: [x1, y1, x2, y2] });
   }
 
+  ellipse(x: number, y: number, w: number, h: number) {
+    this.calls.push({ name: 'ellipse', args: [x, y, w, h] });
+  }
+
+  triangle(x1: number, y1: number, x2: number, y2: number, x3: number, y3: number) {
+    this.calls.push({ name: 'triangle', args: [x1, y1, x2, y2, x3, y3] });
+  }
+
+  push() {
+    this.calls.push({ name: 'push', args: [] });
+  }
+
+  pop() {
+    this.calls.push({ name: 'pop', args: [] });
+  }
+
+  translate(x: number, y: number) {
+    this.calls.push({ name: 'translate', args: [x, y] });
+  }
+
+  rotate(angle: number) {
+    this.calls.push({ name: 'rotate', args: [angle] });
+  }
+
   millis(): number {
     return this.clock;
   }

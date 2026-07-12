@@ -12,6 +12,12 @@ export interface P5Like {
   fill(...args: number[]): void;
   rect(x: number, y: number, w: number, h: number): void;
   line(x1: number, y1: number, x2: number, y2: number): void;
+  ellipse(x: number, y: number, w: number, h: number): void;
+  triangle(x1: number, y1: number, x2: number, y2: number, x3: number, y3: number): void;
+  push(): void;
+  pop(): void;
+  translate(x: number, y: number): void;
+  rotate(angle: number): void;
   millis(): number;
   remove(): void;
 }
