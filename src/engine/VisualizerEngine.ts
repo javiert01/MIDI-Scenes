@@ -6,9 +6,22 @@ import { parseNoteMessage } from './midi';
 import type { MidiAccessLike, MidiFactory } from './midiTypes';
 import { defaultMidiFactory } from './webMidiAdapter';
 
-const DEFAULT_WIDTH = 1600;
-const DEFAULT_HEIGHT = 800;
 const CHROMA_KEY_RATIO = 1 / 3;
+
+export type ResolutionPresetId = '1600x800' | '1920x1080';
+
+const RESOLUTION_PRESETS: Record<ResolutionPresetId, { width: number; height: number }> = {
+  '1600x800': { width: 1600, height: 800 },
+  '1920x1080': { width: 1920, height: 1080 },
+};
+
+const DEFAULT_PRESET: ResolutionPresetId = '1600x800';
+
+function presetIdForDimensions(width: number, height: number): ResolutionPresetId | undefined {
+  return (Object.keys(RESOLUTION_PRESETS) as ResolutionPresetId[]).find(
+    (id) => RESOLUTION_PRESETS[id].width === width && RESOLUTION_PRESETS[id].height === height,
+  );
+}
 
 const BACKGROUND_GRAY = 10;
 const CHROMA_KEY_GREEN: [number, number, number] = [0, 177, 64];
@@ -80,10 +93,12 @@ export interface ActiveParam {
  * render loop calls and never recreates the p5 instance.
  */
 export class VisualizerEngine {
-  readonly width: number;
-  readonly height: number;
-  readonly visualizationHeight: number;
-  readonly chromaKeyHeight: number;
+  private widthState: number;
+  private heightState: number;
+  private visualizationHeightState: number;
+  private chromaKeyHeightState: number;
+  private resolutionPresetState: ResolutionPresetId;
+  private readonly chromaKeyRatio: number;
 
   // Assigned synchronously inside the createP5 sketch callback below, before
   // the constructor returns — the factory always invokes that callback inline.
@@ -113,10 +128,16 @@ export class VisualizerEngine {
   private noteActivityTick = 0;
 
   constructor(container: HTMLElement, options: VisualizerEngineOptions = {}) {
-    this.width = options.width ?? DEFAULT_WIDTH;
-    this.height = options.height ?? DEFAULT_HEIGHT;
-    this.chromaKeyHeight = this.height * (options.chromaKeyRatio ?? CHROMA_KEY_RATIO);
-    this.visualizationHeight = this.height - this.chromaKeyHeight;
+    const width = options.width ?? RESOLUTION_PRESETS[DEFAULT_PRESET].width;
+    const height = options.height ?? RESOLUTION_PRESETS[DEFAULT_PRESET].height;
+    this.chromaKeyRatio = options.chromaKeyRatio ?? CHROMA_KEY_RATIO;
+    this.resolutionPresetState = presetIdForDimensions(width, height) ?? DEFAULT_PRESET;
+    this.widthState = width;
+    this.heightState = height;
+    ({
+      chromaKeyHeight: this.chromaKeyHeightState,
+      visualizationHeight: this.visualizationHeightState,
+    } = this.splitHeight(height));
     this.storage =
       options.storage ?? (typeof window !== 'undefined' ? window.localStorage : undefined);
 
@@ -140,6 +161,32 @@ export class VisualizerEngine {
     }, container);
 
     void this.initMidi(options.createMidi ?? defaultMidiFactory);
+  }
+
+  get width(): number {
+    return this.widthState;
+  }
+
+  get height(): number {
+    return this.heightState;
+  }
+
+  get visualizationHeight(): number {
+    return this.visualizationHeightState;
+  }
+
+  get chromaKeyHeight(): number {
+    return this.chromaKeyHeightState;
+  }
+
+  /** The active resolution preset. Switching never recreates the canvas. */
+  get resolutionPreset(): ResolutionPresetId {
+    return this.resolutionPresetState;
+  }
+
+  /** Resolution presets available for the sidebar to list. */
+  get resolutionPresets(): ResolutionPresetId[] {
+    return Object.keys(RESOLUTION_PRESETS) as ResolutionPresetId[];
   }
 
   /** Scenes available for the sidebar to list. */
@@ -192,6 +239,23 @@ export class VisualizerEngine {
     this.notify();
   }
 
+  /** Resizes the internal render buffer to `id`'s dimensions. Never recreates the canvas. */
+  setResolutionPreset(id: ResolutionPresetId): void {
+    const preset = RESOLUTION_PRESETS[id];
+    if (!preset) return;
+    if (id === this.resolutionPresetState) return;
+
+    this.resolutionPresetState = id;
+    this.widthState = preset.width;
+    this.heightState = preset.height;
+    ({
+      chromaKeyHeight: this.chromaKeyHeightState,
+      visualizationHeight: this.visualizationHeightState,
+    } = this.splitHeight(preset.height));
+    this.p.resizeCanvas(preset.width, preset.height);
+    this.notify();
+  }
+
   /** Switches the Active Scene: tears down the outgoing Scene, sets up the incoming one. */
   selectScene(id: string): void {
     if (id === this.activeScene?.id) return;
@@ -229,6 +293,11 @@ export class VisualizerEngine {
     this.unwireActiveDevice();
     this.unsubscribeDeviceChange?.();
     this.p.remove();
+  }
+
+  private splitHeight(height: number): { chromaKeyHeight: number; visualizationHeight: number } {
+    const chromaKeyHeight = height * this.chromaKeyRatio;
+    return { chromaKeyHeight, visualizationHeight: height - chromaKeyHeight };
   }
 
   private activateScene(scene: Scene): void {

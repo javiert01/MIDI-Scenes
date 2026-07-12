@@ -5,6 +5,7 @@ export interface P5Like {
   setup?: () => void;
   draw?: () => void;
   createCanvas(w: number, h: number): void;
+  resizeCanvas(w: number, h: number): void;
   noStroke(): void;
   stroke(...args: number[]): void;
   strokeWeight(weight: number): void;

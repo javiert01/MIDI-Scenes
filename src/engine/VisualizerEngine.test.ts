@@ -23,6 +23,12 @@ class StubP5 implements P5Like {
     this.calls.push({ name: 'createCanvas', args: [w, h] });
   }
 
+  resizeCanvas(w: number, h: number) {
+    this.width = w;
+    this.height = h;
+    this.calls.push({ name: 'resizeCanvas', args: [w, h] });
+  }
+
   noStroke() {
     this.calls.push({ name: 'noStroke', args: [] });
   }
@@ -329,6 +335,90 @@ describe('VisualizerEngine chroma key toggle', () => {
 
     engine.setChromaKeyVisible(true);
 
+    expect(listener).not.toHaveBeenCalled();
+  });
+});
+
+describe('VisualizerEngine resolution preset switch', () => {
+  it('defaults to the 1600x800 preset', () => {
+    const { factory } = stubP5Factory();
+    const container = document.createElement('div');
+
+    const engine = new VisualizerEngine(container, { createP5: factory });
+
+    expect(engine.resolutionPreset).toBe('1600x800');
+    expect(engine.resolutionPresets).toEqual(['1600x800', '1920x1080']);
+  });
+
+  it('setResolutionPreset resizes the render buffer without recreating the canvas', () => {
+    const { factory, getInstance } = stubP5Factory();
+    const container = document.createElement('div');
+    const engine = new VisualizerEngine(container, { createP5: factory });
+    const stub = getInstance();
+    stub.calls = [];
+
+    engine.setResolutionPreset('1920x1080');
+
+    expect(engine.resolutionPreset).toBe('1920x1080');
+    expect(engine.width).toBe(1920);
+    expect(engine.height).toBe(1080);
+    expect(engine.chromaKeyHeight).toBeCloseTo(1080 / 3);
+    expect(engine.visualizationHeight).toBeCloseTo((1080 * 2) / 3);
+    expect(stub.calls).toContainEqual({ name: 'resizeCanvas', args: [1920, 1080] });
+    expect(stub.calls.some((c) => c.name === 'createCanvas')).toBe(false);
+  });
+
+  it('Scenes see the updated ctx.width/height/chromaKeyHeight on the next frame, without special-casing', () => {
+    const { factory, getInstance } = stubP5Factory();
+    const container = document.createElement('div');
+    const sceneA = new FakeScene('a', 'Scene A');
+    const engine = new VisualizerEngine(container, { createP5: factory, scenes: [sceneA] });
+    const stub = getInstance();
+
+    engine.setResolutionPreset('1920x1080');
+    stub.draw?.();
+
+    const ctx = sceneA.update.mock.calls.at(-1)![0] as SceneContext;
+    expect(ctx.width).toBe(1920);
+    expect(ctx.height).toBe(1080);
+    expect(ctx.chromaKeyHeight).toBeCloseTo(1080 / 3);
+  });
+
+  it('notifies subscribers when the resolution preset changes', () => {
+    const { factory } = stubP5Factory();
+    const container = document.createElement('div');
+    const engine = new VisualizerEngine(container, { createP5: factory });
+    const listener = vi.fn();
+    engine.subscribe(listener);
+
+    engine.setResolutionPreset('1920x1080');
+
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  it('setting the same preset again is a no-op notification-wise', () => {
+    const { factory } = stubP5Factory();
+    const container = document.createElement('div');
+    const engine = new VisualizerEngine(container, { createP5: factory });
+    const listener = vi.fn();
+    engine.subscribe(listener);
+
+    engine.setResolutionPreset('1600x800');
+
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it('ignores unknown presets', () => {
+    const { factory } = stubP5Factory();
+    const container = document.createElement('div');
+    const engine = new VisualizerEngine(container, { createP5: factory });
+    const listener = vi.fn();
+    engine.subscribe(listener);
+
+    // @ts-expect-error - intentionally invalid preset id
+    engine.setResolutionPreset('4x4');
+
+    expect(engine.resolutionPreset).toBe('1600x800');
     expect(listener).not.toHaveBeenCalled();
   });
 });

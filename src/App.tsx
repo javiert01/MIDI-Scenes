@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import type { RefObject } from 'react';
 import { VisualizerEngine } from '@/engine/VisualizerEngine';
 import { createDefaultScenes } from '@/scenes';
 import type { ParamSpec, ParamValue } from '@/engine/scene';
@@ -24,17 +25,47 @@ function App() {
   return (
     <div className="app-shell">
       <div className="canvas-stage">
-        <div ref={containerRef} className="canvas-container" />
+        <CanvasContainer containerRef={containerRef} engine={engine} />
       </div>
       {engine && (
         <aside className="sidebar">
           <SceneSwitcher engine={engine} />
           <ParamControls engine={engine} />
           <ChromaKeyToggle engine={engine} />
+          <ResolutionPicker engine={engine} />
           <DevicePicker engine={engine} />
         </aside>
       )}
     </div>
+  );
+}
+
+function CanvasContainer({
+  containerRef,
+  engine,
+}: {
+  containerRef: RefObject<HTMLDivElement>;
+  engine: VisualizerEngine | null;
+}) {
+  const width = useSyncExternalStore(
+    (onChange) => engine?.subscribe(onChange) ?? (() => {}),
+    () => engine?.width,
+  );
+  const height = useSyncExternalStore(
+    (onChange) => engine?.subscribe(onChange) ?? (() => {}),
+    () => engine?.height,
+  );
+
+  return (
+    <div
+      ref={containerRef}
+      className="canvas-container"
+      style={
+        width && height
+          ? { aspectRatio: `${width} / ${height}`, width: `min(100%, ${(100 * width) / height}vh)` }
+          : undefined
+      }
+    />
   );
 }
 
@@ -166,6 +197,32 @@ function ChromaKeyToggle({ engine }: { engine: VisualizerEngine }) {
         checked={chromaKeyVisible}
         onChange={(checked) => engine.setChromaKeyVisible(checked)}
       />
+    </>
+  );
+}
+
+function ResolutionPicker({ engine }: { engine: VisualizerEngine }) {
+  const resolutionPreset = useSyncExternalStore(
+    (onChange) => engine.subscribe(onChange),
+    () => engine.resolutionPreset,
+  );
+
+  return (
+    <>
+      <h2>Resolution</h2>
+      <ul className="scene-list">
+        {engine.resolutionPresets.map((preset) => (
+          <li key={preset}>
+            <button
+              type="button"
+              className={preset === resolutionPreset ? 'active' : ''}
+              onClick={() => engine.setResolutionPreset(preset)}
+            >
+              {preset.replace('x', '×')}
+            </button>
+          </li>
+        ))}
+      </ul>
     </>
   );
 }
