@@ -342,10 +342,9 @@ interface CrystalShaft {
 }
 
 const CRYSTAL_POOL_SIZE = 12;
-const CRYSTAL_SPAWN_CHANCE = 0.01;
 const CRYSTAL_GROWTH_RATE = 6;
 const CRYSTAL_MAX_LENGTH = 60;
-const CRYSTAL_RISE_RATE = 4;
+const CRYSTAL_FALL_RATE = 4;
 
 function spawnCrystalPool(): CrystalShaft[] {
   return Array.from({ length: CRYSTAL_POOL_SIZE }, () => ({
@@ -358,18 +357,8 @@ function spawnCrystalPool(): CrystalShaft[] {
   }));
 }
 
-function updateCrystal(crystal: CrystalShaft, { width, visHeight }: Bounds): void {
-  if (!crystal.active) {
-    if (Math.random() < CRYSTAL_SPAWN_CHANCE) {
-      crystal.active = true;
-      crystal.growing = true;
-      crystal.x = randomRange(0, width);
-      crystal.y = visHeight;
-      crystal.length = 0.5;
-      crystal.color = CRYSTAL_COLORS[Math.random() < 0.5 ? 0 : 1];
-    }
-    return;
-  }
+function updateCrystal(crystal: CrystalShaft, { visHeight }: Bounds): void {
+  if (!crystal.active) return;
 
   if (crystal.growing) {
     crystal.length += CRYSTAL_GROWTH_RATE;
@@ -377,15 +366,15 @@ function updateCrystal(crystal: CrystalShaft, { width, visHeight }: Bounds): voi
     return;
   }
 
-  crystal.y -= CRYSTAL_RISE_RATE;
-  if (crystal.y + crystal.length < 0) crystal.active = false;
+  crystal.y += CRYSTAL_FALL_RATE;
+  if (crystal.y > visHeight) crystal.active = false;
 }
 
 function drawCrystal(p: P5Like, crystal: CrystalShaft): void {
   if (!crystal.active) return;
   const [r, g, b] = crystal.color;
   p.fill(r, g, b, 40);
-  p.rect(crystal.x, crystal.y - crystal.length, 6, crystal.length);
+  p.rect(crystal.x, crystal.y, 6, crystal.length);
 }
 
 function drawWaterBackground(p: P5Like, { width, visHeight }: Bounds): void {
@@ -474,7 +463,7 @@ export class UnderwaterScene implements Scene {
 
     const crystal = this.acquireCrystal();
     crystal.x = pos.x;
-    crystal.y = pos.y;
+    crystal.y = 0;
     crystal.length = 0.5;
     crystal.active = true;
     crystal.growing = true;

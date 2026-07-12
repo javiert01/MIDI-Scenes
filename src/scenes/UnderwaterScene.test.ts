@@ -153,7 +153,7 @@ describe('UnderwaterScene', () => {
     expect(crystal.active).toBe(true);
   });
 
-  it('switches a fully grown crystal shaft from growing to rising, then deactivates it once it rises off the top', () => {
+  it('switches a fully grown crystal shaft from growing to falling, then deactivates it once it drops off the bottom', () => {
     const scene = new UnderwaterScene();
     const ctx = makeCtx({ params: { fishCount: 0, jellyfishCount: 0 } });
     scene.setup(ctx);
@@ -168,9 +168,9 @@ describe('UnderwaterScene', () => {
     const yAfterGrowth = crystal.y;
 
     scene.update(ctx);
-    expect(crystal.y).toBeLessThan(yAfterGrowth);
+    expect(crystal.y).toBeGreaterThan(yAfterGrowth);
 
-    crystal.y = -crystal.length - 1;
+    crystal.y = ctx.height - ctx.chromaKeyHeight + 1;
     scene.update(ctx);
     expect(crystal.active).toBe(false);
   });
