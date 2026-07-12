@@ -35,12 +35,90 @@ const CRYSTAL_COLORS: [RgbColor, RgbColor] = [
   [255, 69, 0],
 ];
 
+const FISH_BOOST_SPEED_SCALE = 2;
+const FISH_BOOST_SIZE_SCALE = 0.5;
+const JELLYFISH_BOOST_PULSE_SCALE = 3;
+const JELLYFISH_BOOST_SIZE_SCALE = 0.6;
+const BOOST_DECAY = 0.95;
+
+/** Piano-key note→position model ported from piano.js/key.js (base note id 36, 35 white keys). */
+const BASE_NOTE_ID = 36;
+const WHITE_KEYS_PER_OCTAVE = 7;
+const TOTAL_WHITE_KEYS = 35;
+const BLACK_KEY_X_OFFSET_RATIO = 2 / 3;
+const WHITE_KEY_Y_RATIO = 0.15;
+const BLACK_KEY_Y_RATIO = 0.09375;
+
+interface KeyLayoutEntry {
+  isWhite: boolean;
+  whiteIndex: number;
+}
+
+/** One chromatic octave (C..B), matching the original Piano's white/black key skip pattern. */
+const OCTAVE_KEY_LAYOUT: KeyLayoutEntry[] = [
+  { isWhite: true, whiteIndex: 0 }, // C
+  { isWhite: false, whiteIndex: 0 }, // C#
+  { isWhite: true, whiteIndex: 1 }, // D
+  { isWhite: false, whiteIndex: 1 }, // D#
+  { isWhite: true, whiteIndex: 2 }, // E
+  { isWhite: true, whiteIndex: 3 }, // F
+  { isWhite: false, whiteIndex: 3 }, // F#
+  { isWhite: true, whiteIndex: 4 }, // G
+  { isWhite: false, whiteIndex: 4 }, // G#
+  { isWhite: true, whiteIndex: 5 }, // A
+  { isWhite: false, whiteIndex: 5 }, // A#
+  { isWhite: true, whiteIndex: 6 }, // B
+];
+
 function randomRange(min: number, max: number): number {
   return min + Math.random() * (max - min);
 }
 
 function boundsOf(ctx: SceneContext): Bounds {
   return { width: ctx.width, visHeight: ctx.height - ctx.chromaKeyHeight };
+}
+
+/** Maps a MIDI note number to its piano-key x/y position, following the ported layout. */
+function keyPositionFor(note: number, bounds: Bounds): { x: number; y: number } {
+  const offset = note - BASE_NOTE_ID;
+  const octaveIndex = Math.floor(offset / 12);
+  const semitone = ((offset % 12) + 12) % 12;
+  const layout = OCTAVE_KEY_LAYOUT[semitone];
+  const whiteKeyWidth = bounds.width / TOTAL_WHITE_KEYS;
+  const octaveOriginX = octaveIndex * whiteKeyWidth * WHITE_KEYS_PER_OCTAVE;
+  const whiteX = octaveOriginX + layout.whiteIndex * whiteKeyWidth;
+
+  if (layout.isWhite) {
+    return { x: whiteX, y: bounds.visHeight * WHITE_KEY_Y_RATIO };
+  }
+  return {
+    x: whiteX + BLACK_KEY_X_OFFSET_RATIO * whiteKeyWidth,
+    y: bounds.visHeight * BLACK_KEY_Y_RATIO,
+  };
+}
+
+function distanceSquared(x1: number, y1: number, x2: number, y2: number): number {
+  const dx = x1 - x2;
+  const dy = y1 - y2;
+  return dx * dx + dy * dy;
+}
+
+/** Finds the item nearest (x, y); private to the Scene, the engine never sees creatures. */
+function findNearest<T extends { x: number; y: number }>(
+  x: number,
+  y: number,
+  items: T[],
+): T | null {
+  let nearest: T | null = null;
+  let nearestDistance = Infinity;
+  for (const item of items) {
+    const d = distanceSquared(x, y, item.x, item.y);
+    if (d < nearestDistance) {
+      nearestDistance = d;
+      nearest = item;
+    }
+  }
+  return nearest;
 }
 
 function randomPattern(): FishPattern {
@@ -68,6 +146,8 @@ interface Fish {
   centerY: number;
   radiusX: number;
   radiusY: number;
+  /** Normalized velocity boost from a nearby note-on; decays toward 0 each frame. */
+  boost: number;
 }
 
 function spawnFish({ width, visHeight }: Bounds): Fish {
@@ -88,14 +168,18 @@ function spawnFish({ width, visHeight }: Bounds): Fish {
     centerY: y,
     radiusX: randomRange(100, 250),
     radiusY: randomRange(80, 200),
+    boost: 0,
   };
 }
 
 function updateFish(fish: Fish, frame: number, { width, visHeight }: Bounds): void {
+  fish.boost *= BOOST_DECAY;
+  const speed = fish.speed * (1 + fish.boost * FISH_BOOST_SPEED_SCALE);
+
   switch (fish.pattern) {
     case 'traveling': {
       const time = frame * 0.02;
-      const xVel = fish.speed * Math.cos(time * fish.frequency);
+      const xVel = speed * Math.cos(time * fish.frequency);
       const yVel = fish.amplitude * 0.1 * Math.sin(time * 0.5);
       fish.x += xVel;
       fish.y += yVel;
@@ -111,8 +195,8 @@ function updateFish(fish: Fish, frame: number, { width, visHeight }: Bounds): vo
     }
     case 'wandering': {
       if (frame % 180 === 0) fish.direction += randomRange(-PI / 4, PI / 4);
-      fish.x += fish.speed * Math.cos(fish.direction);
-      fish.y += fish.speed * Math.sin(fish.direction);
+      fish.x += speed * Math.cos(fish.direction);
+      fish.y += speed * Math.sin(fish.direction);
       break;
     }
   }
@@ -125,8 +209,9 @@ function updateFish(fish: Fish, frame: number, { width, visHeight }: Bounds): vo
 
 function drawFish(p: P5Like, fish: Fish): void {
   const [r, g, b] = fish.color;
-  const bodyLength = fish.size * 2;
-  const bodyWidth = fish.size * 0.8;
+  const size = fish.size * (1 + fish.boost * FISH_BOOST_SIZE_SCALE);
+  const bodyLength = size * 2;
+  const bodyWidth = size * 0.8;
 
   p.push();
   p.translate(fish.x, fish.y);
@@ -156,7 +241,7 @@ function drawFish(p: P5Like, fish: Fish): void {
   );
 
   p.fill(255, 255, 255);
-  const eyeSize = fish.size * 0.25;
+  const eyeSize = size * 0.25;
   p.ellipse(bodyLength * 0.25, 0, eyeSize, eyeSize);
   p.fill(0, 0, 0);
   p.ellipse(bodyLength * 0.27, 0, eyeSize * 0.5, eyeSize * 0.5);
@@ -176,6 +261,8 @@ interface Jellyfish {
   bobSpeed: number;
   tentacleCount: number;
   color: RgbColor;
+  /** Normalized velocity boost from a nearby note-on; decays toward 0 each frame. */
+  boost: number;
 }
 
 function spawnJellyfish({ width, visHeight }: Bounds): Jellyfish {
@@ -191,16 +278,20 @@ function spawnJellyfish({ width, visHeight }: Bounds): Jellyfish {
     bobSpeed: randomRange(0.02, 0.04),
     tentacleCount: Math.floor(randomRange(6, 12)),
     color: JELLYFISH_COLORS[Math.floor(Math.random() * JELLYFISH_COLORS.length)],
+    boost: 0,
   };
 }
 
 function updateJellyfish(jelly: Jellyfish, frame: number, { width, visHeight }: Bounds): void {
+  jelly.boost *= BOOST_DECAY;
+  const pulseSpeed = jelly.pulseSpeed * (1 + jelly.boost * JELLYFISH_BOOST_PULSE_SCALE);
+
   jelly.x += Math.cos(jelly.direction) * jelly.speed;
   jelly.y += Math.sin(jelly.direction) * jelly.speed * 0.5;
   jelly.y += Math.sin(frame * jelly.bobSpeed + jelly.bobOffset) * 0.5;
 
   if (frame % 200 === 0) jelly.direction += randomRange(-PI / 6, PI / 6);
-  jelly.pulsePhase += jelly.pulseSpeed;
+  jelly.pulsePhase += pulseSpeed;
 
   jelly.x = wrapHorizontal(jelly.x, jelly.size * 2, width);
 
@@ -218,7 +309,8 @@ function updateJellyfish(jelly: Jellyfish, frame: number, { width, visHeight }: 
 function drawJellyfish(p: P5Like, jelly: Jellyfish, frame: number): void {
   const [r, g, b] = jelly.color;
   const pulse = Math.sin(jelly.pulsePhase);
-  const size = jelly.size + pulse * jelly.size * 0.2;
+  const boostedSize = jelly.size * (1 + jelly.boost * JELLYFISH_BOOST_SIZE_SCALE);
+  const size = boostedSize + pulse * boostedSize * 0.2;
 
   p.push();
   p.translate(jelly.x, jelly.y);
@@ -307,7 +399,7 @@ function drawWaterBackground(p: P5Like, { width, visHeight }: Bounds): void {
   }
 }
 
-/** Revived from fish.js/jellyfish.js/crystal.js; note reactions land in T6. */
+/** Revived from fish.js/jellyfish.js/crystal.js/piano.js/key.js. */
 export class UnderwaterScene implements Scene {
   readonly id = 'underwater';
   readonly label = 'Underwater';
@@ -336,6 +428,9 @@ export class UnderwaterScene implements Scene {
   private jellyfish: Jellyfish[] = [];
   private crystals: CrystalShaft[] = [];
   private frame = 0;
+  /** Tracks which pooled crystal is growing for each currently-held note, keyed by MIDI note id. */
+  private noteCrystals = new Map<number, CrystalShaft>();
+  private nextCrystalIndex = 0;
 
   setup(ctx: SceneContext): void {
     const bounds = boundsOf(ctx);
@@ -346,6 +441,8 @@ export class UnderwaterScene implements Scene {
     this.jellyfish = Array.from({ length: jellyfishCount }, () => spawnJellyfish(bounds));
     this.crystals = spawnCrystalPool();
     this.frame = 0;
+    this.noteCrystals.clear();
+    this.nextCrystalIndex = 0;
   }
 
   update(ctx: SceneContext): void {
@@ -371,17 +468,49 @@ export class UnderwaterScene implements Scene {
     p.pop();
   }
 
-  onNoteOn(_event: NoteEvent, _ctx: SceneContext): void {
-    // Note reactions land in T6.
+  onNoteOn(event: NoteEvent, ctx: SceneContext): void {
+    const bounds = boundsOf(ctx);
+    const pos = keyPositionFor(event.note, bounds);
+
+    const crystal = this.acquireCrystal();
+    crystal.x = pos.x;
+    crystal.y = pos.y;
+    crystal.length = 0.5;
+    crystal.active = true;
+    crystal.growing = true;
+    crystal.color = pos.x < bounds.width / 2 ? CRYSTAL_COLORS[0] : CRYSTAL_COLORS[1];
+    this.noteCrystals.set(event.note, crystal);
+
+    const nearest = findNearest<Fish | Jellyfish>(pos.x, pos.y, [...this.fish, ...this.jellyfish]);
+    if (nearest) nearest.boost = event.velocity;
   }
 
-  onNoteOff(_event: NoteEvent, _ctx: SceneContext): void {
-    // Note reactions land in T6.
+  onNoteOff(event: NoteEvent, _ctx: SceneContext): void {
+    const crystal = this.noteCrystals.get(event.note);
+    if (!crystal) return;
+    crystal.growing = false;
+    this.noteCrystals.delete(event.note);
   }
 
   teardown(): void {
     this.fish = [];
     this.jellyfish = [];
     this.crystals = [];
+    this.noteCrystals.clear();
+  }
+
+  /** Reuses a free pooled crystal, or recycles the oldest one round-robin if the pool is full. */
+  private acquireCrystal(): CrystalShaft {
+    const free = this.crystals.find((c) => !c.active);
+    if (free) return free;
+
+    const crystal = this.crystals[this.nextCrystalIndex % this.crystals.length];
+    this.nextCrystalIndex += 1;
+    // The recycled crystal may still be tracked for a held note; drop that stale
+    // mapping so a later onNoteOff for it can't reach into what is now a different note's crystal.
+    for (const [note, tracked] of this.noteCrystals) {
+      if (tracked === crystal) this.noteCrystals.delete(note);
+    }
+    return crystal;
   }
 }
