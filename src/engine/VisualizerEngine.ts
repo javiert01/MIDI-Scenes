@@ -46,6 +46,9 @@ export interface PersistedStateV1 {
   deviceName: string | null;
   resolutionPreset: ResolutionPresetId;
   chromaKeyVisible: boolean;
+  crystalsVisible: boolean;
+  /** 0-1, applied to Crystals on every Scene and No Scene alike. */
+  crystalsOpacity: number;
 }
 
 export const defaultP5Factory: P5Factory = (sketch, node) =>
@@ -131,6 +134,8 @@ export class VisualizerEngine {
   private sceneStartMillis = 0;
   private lastFrameMillis = 0;
   private chromaKeyVisibleState = true;
+  private crystalsVisibleState = true;
+  private crystalsOpacityState = 1;
 
   // The engine owns the Crystal Overlay: a note-on spawns a Crystal regardless
   // of the Active Scene, so Crystals react on every Scene and on No Scene.
@@ -259,6 +264,16 @@ export class VisualizerEngine {
     return this.chromaKeyVisibleState;
   }
 
+  /** Whether the Crystal Overlay renders, on every Scene and on No Scene alike. */
+  get crystalsVisible(): boolean {
+    return this.crystalsVisibleState;
+  }
+
+  /** Global opacity (0-1) applied to Crystals wherever they render. */
+  get crystalsOpacity(): number {
+    return this.crystalsOpacityState;
+  }
+
   /** Bumped on every dispatched note-on/off; sidebar can diff it to flash an activity indicator. */
   get activityTick(): number {
     return this.noteActivityTick;
@@ -322,6 +337,23 @@ export class VisualizerEngine {
     this.notify();
   }
 
+  /** Shows or hides the Crystal Overlay on every Scene and No Scene alike. */
+  setCrystalsVisible(visible: boolean): void {
+    if (visible === this.crystalsVisibleState) return;
+    this.crystalsVisibleState = visible;
+    this.persist();
+    this.notify();
+  }
+
+  /** Sets the global Crystals opacity, clamped to [0, 1]. */
+  setCrystalsOpacity(opacity: number): void {
+    const clamped = Math.min(1, Math.max(0, opacity));
+    if (clamped === this.crystalsOpacityState) return;
+    this.crystalsOpacityState = clamped;
+    this.persist();
+    this.notify();
+  }
+
   /** Selects the single Device the engine binds MIDI message handlers to. */
   selectDevice(id: string): void {
     if (!this.midiAccess) return;
@@ -345,6 +377,8 @@ export class VisualizerEngine {
       deviceName: this.rememberedDeviceName,
       resolutionPreset: this.resolutionPresetState,
       chromaKeyVisible: this.chromaKeyVisibleState,
+      crystalsVisible: this.crystalsVisibleState,
+      crystalsOpacity: this.crystalsOpacityState,
     };
   }
 
@@ -378,6 +412,14 @@ export class VisualizerEngine {
 
     if (typeof state.chromaKeyVisible === 'boolean') {
       this.chromaKeyVisibleState = state.chromaKeyVisible;
+    }
+
+    if (typeof state.crystalsVisible === 'boolean') {
+      this.crystalsVisibleState = state.crystalsVisible;
+    }
+
+    if (typeof state.crystalsOpacity === 'number' && !Number.isNaN(state.crystalsOpacity)) {
+      this.crystalsOpacityState = Math.min(1, Math.max(0, state.crystalsOpacity));
     }
 
     if (
@@ -576,7 +618,13 @@ export class VisualizerEngine {
   /** The Crystal-placement seam: a Scene calls this to draw Crystals in its own draw order. */
   private drawCrystals(): void {
     this.crystalsDrawnThisFrame = true;
-    this.crystals.draw(this.p, this.visualizationHeight);
+    this.renderCrystals();
+  }
+
+  /** Draws the Crystal pool at the current global opacity, unless Crystals are toggled off. */
+  private renderCrystals(): void {
+    if (!this.crystalsVisibleState) return;
+    this.crystals.draw(this.p, this.visualizationHeight, this.crystalsOpacityState);
   }
 
   private renderFrame(p: P5Like): void {
@@ -606,7 +654,7 @@ export class VisualizerEngine {
     // The Scene may have drawn Crystals itself (via ctx.drawCrystals()) somewhere
     // in its own order; if it did not — and on No Scene — the engine draws them on top.
     if (!this.crystalsDrawnThisFrame) {
-      this.crystals.draw(this.p, this.visualizationHeight);
+      this.renderCrystals();
     }
   }
 }

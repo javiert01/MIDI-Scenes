@@ -970,6 +970,8 @@ describe('VisualizerEngine session persistence (T11)', () => {
       deviceName: 'Keyboard B',
       resolutionPreset: '1920x1080',
       chromaKeyVisible: false,
+      crystalsVisible: true,
+      crystalsOpacity: 1,
     });
   });
 
@@ -1332,6 +1334,132 @@ describe('VisualizerEngine Crystal Overlay (T15)', () => {
     stub.draw?.();
 
     expect(crystalRects(stub).length).toBe(0);
+  });
+});
+
+describe('VisualizerEngine Crystals sidebar controls (T17)', () => {
+  const deviceA: MidiInputLike = { id: 'dev-a', name: 'Keyboard A' };
+
+  // Crystal shafts are narrow (a fraction of a key column); the only other rect
+  // drawn is the full-width Chroma Key band, so a small width isolates crystals.
+  function crystalRects(stub: StubP5): RecordedCall[] {
+    return stub.calls.filter((c) => c.name === 'rect' && (c.args as number[])[2] < 100);
+  }
+
+  async function setUpEngine(scenes: Scene[] = []) {
+    const { factory, getInstance } = stubP5Factory();
+    const container = document.createElement('div');
+    const midi = new FakeMidiAccess([deviceA]);
+    const engine = new VisualizerEngine(container, {
+      createP5: factory,
+      createMidi: fakeMidiFactory(midi),
+      storage: new FakeStorage(),
+      scenes,
+    });
+    await flushMicrotasks();
+    return { engine, midi, stub: getInstance() };
+  }
+
+  it('defaults to visible with full opacity', async () => {
+    const { engine } = await setUpEngine();
+
+    expect(engine.crystalsVisible).toBe(true);
+    expect(engine.crystalsOpacity).toBe(1);
+  });
+
+  it('setCrystalsVisible(false) stops crystals rendering on No Scene', async () => {
+    const { engine, midi, stub } = await setUpEngine();
+
+    engine.setCrystalsVisible(false);
+    midi.emit('dev-a', [0x90, 60, 100]);
+    stub.calls = [];
+    stub.draw?.();
+
+    expect(crystalRects(stub).length).toBe(0);
+  });
+
+  it('setCrystalsVisible(true) restores crystal rendering', async () => {
+    const { engine, midi, stub } = await setUpEngine();
+    engine.setCrystalsVisible(false);
+    midi.emit('dev-a', [0x90, 60, 100]);
+
+    engine.setCrystalsVisible(true);
+    stub.calls = [];
+    stub.draw?.();
+
+    expect(crystalRects(stub).length).toBe(1);
+  });
+
+  it('setCrystalsVisible(false) also suppresses a Scene that draws crystals itself via ctx.drawCrystals()', async () => {
+    const scene = new FakeScene('a', 'Scene A');
+    scene.draw.mockImplementation((ctx: SceneContext) => ctx.drawCrystals());
+    const { engine, midi, stub } = await setUpEngine([scene]);
+
+    engine.setCrystalsVisible(false);
+    midi.emit('dev-a', [0x90, 60, 100]);
+    stub.calls = [];
+    stub.draw?.();
+
+    expect(crystalRects(stub).length).toBe(0);
+  });
+
+  it('setCrystalsOpacity scales the drawn alpha', async () => {
+    const { engine, midi, stub } = await setUpEngine();
+
+    engine.setCrystalsOpacity(0.5);
+    midi.emit('dev-a', [0x90, 60, 100]);
+    stub.calls = [];
+    stub.draw?.();
+
+    const fillCall = stub.calls.find((c) => c.name === 'fill' && (c.args as number[]).length === 4);
+    expect((fillCall!.args as number[])[3]).toBeCloseTo(150 * 0.5);
+  });
+
+  it('setCrystalsOpacity clamps to [0, 1]', async () => {
+    const { engine } = await setUpEngine();
+
+    engine.setCrystalsOpacity(5);
+    expect(engine.crystalsOpacity).toBe(1);
+
+    engine.setCrystalsOpacity(-2);
+    expect(engine.crystalsOpacity).toBe(0);
+  });
+
+  it('persists crystalsVisible/crystalsOpacity across serialize()/restore()', async () => {
+    const { engine: source } = await setUpEngine();
+    source.setCrystalsVisible(false);
+    source.setCrystalsOpacity(0.3);
+    const snapshot = source.serialize();
+    expect(snapshot.crystalsVisible).toBe(false);
+    expect(snapshot.crystalsOpacity).toBeCloseTo(0.3);
+
+    const { engine: target } = await setUpEngine();
+    target.restore(snapshot);
+
+    expect(target.crystalsVisible).toBe(false);
+    expect(target.crystalsOpacity).toBeCloseTo(0.3);
+  });
+
+  it('falls back to defaults when older persisted state lacks the new fields', async () => {
+    const { factory } = stubP5Factory();
+    const container = document.createElement('div');
+    const storage = new FakeStorage();
+    storage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        version: 1,
+        activeSceneId: null,
+        paramValues: {},
+        deviceName: null,
+        resolutionPreset: '1600x800',
+        chromaKeyVisible: true,
+      }),
+    );
+
+    const engine = new VisualizerEngine(container, { createP5: factory, storage });
+
+    expect(engine.crystalsVisible).toBe(true);
+    expect(engine.crystalsOpacity).toBe(1);
   });
 });
 

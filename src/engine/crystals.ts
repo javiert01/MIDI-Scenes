@@ -116,15 +116,19 @@ export class CrystalField {
     return Math.max(ceiling, 0);
   }
 
-  /** Draws every active crystal, clipping each shaft so it never spills into the Chroma Key band. */
-  draw(p: P5Like, visHeight: number): void {
+  /**
+   * Draws every active crystal, clipping each shaft so it never spills into the
+   * Chroma Key band. `opacity` (0-1) scales the fill alpha — the sidebar's global
+   * Crystals opacity control.
+   */
+  draw(p: P5Like, visHeight: number, opacity = 1): void {
     p.noStroke();
     for (const crystal of this.crystals) {
       if (!crystal.active) continue;
       const height = Math.min(crystal.length, visHeight - crystal.y);
       if (height <= 0) continue;
       const [r, g, b] = crystal.color;
-      p.fill(r, g, b, CRYSTAL_ALPHA);
+      p.fill(r, g, b, CRYSTAL_ALPHA * opacity);
       p.rect(crystal.x, crystal.y, crystal.width, height);
     }
   }

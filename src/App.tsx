@@ -41,6 +41,7 @@ function App() {
           <SceneSwitcher engine={engine} />
           <ParamControls engine={engine} />
           <ChromaKeyToggle engine={engine} />
+          <CrystalsControl engine={engine} />
           <ResolutionPicker engine={engine} />
           <DevicePicker engine={engine} />
         </aside>
@@ -294,6 +295,41 @@ function ChromaKeyToggle({ engine }: { engine: VisualizerEngine }) {
         checked={chromaKeyVisible}
         onChange={(checked) => engine.setChromaKeyVisible(checked)}
       />
+    </AccordionSection>
+  );
+}
+
+function CrystalsControl({ engine }: { engine: VisualizerEngine }) {
+  const crystalsVisible = useSyncExternalStore(
+    (onChange) => engine.subscribe(onChange),
+    () => engine.crystalsVisible,
+  );
+  const crystalsOpacity = useSyncExternalStore(
+    (onChange) => engine.subscribe(onChange),
+    () => engine.crystalsOpacity,
+  );
+
+  return (
+    <AccordionSection title="Crystals">
+      <ToggleField
+        label="Show crystals"
+        checked={crystalsVisible}
+        onChange={(checked) => engine.setCrystalsVisible(checked)}
+      />
+      <label className="param-control">
+        <span className="param-control-label">
+          Opacity
+          <span className="param-control-value">{Math.round(crystalsOpacity * 100)}%</span>
+        </span>
+        <input
+          type="range"
+          min={0}
+          max={1}
+          step={0.01}
+          value={crystalsOpacity}
+          onChange={(event) => engine.setCrystalsOpacity(event.target.valueAsNumber)}
+        />
+      </label>
     </AccordionSection>
   );
 }

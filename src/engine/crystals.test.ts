@@ -160,6 +160,35 @@ describe('CrystalField', () => {
     }
   });
 
+  it('scales the fill alpha by the opacity multiplier passed to draw', () => {
+    const field = new CrystalField();
+    field.noteOn(36, WIDTH);
+
+    const full = new RecordingP5();
+    field.draw(full as unknown as P5Like, VIS_HEIGHT, 1);
+    const fullAlpha = full.calls.find((c) => c.name === 'fill')!.args[3];
+
+    const half = new RecordingP5();
+    field.draw(half as unknown as P5Like, VIS_HEIGHT, 0.5);
+    const halfAlpha = half.calls.find((c) => c.name === 'fill')!.args[3];
+
+    expect(halfAlpha).toBeCloseTo(fullAlpha * 0.5);
+  });
+
+  it('defaults to full opacity when draw is called without a multiplier', () => {
+    const field = new CrystalField();
+    field.noteOn(36, WIDTH);
+
+    const withDefault = new RecordingP5();
+    field.draw(withDefault as unknown as P5Like, VIS_HEIGHT);
+    const withExplicitFull = new RecordingP5();
+    field.draw(withExplicitFull as unknown as P5Like, VIS_HEIGHT, 1);
+
+    expect(withDefault.calls.find((c) => c.name === 'fill')!.args[3]).toBe(
+      withExplicitFull.calls.find((c) => c.name === 'fill')!.args[3],
+    );
+  });
+
   it('does not draw an inactive crystal', () => {
     const field = new CrystalField();
     const p = new RecordingP5();
