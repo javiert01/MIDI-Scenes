@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { STORAGE_KEY, VisualizerEngine } from '@/engine/VisualizerEngine';
+import { NO_SCENE_ID, STORAGE_KEY, VisualizerEngine } from '@/engine/VisualizerEngine';
 import type { P5Factory, P5Like } from '@/engine/types';
 import type { ParamSpec, Scene, SceneContext, NoteEvent } from '@/engine/scene';
 import type { MidiAccessLike, MidiInputLike, MidiMessageHandler } from '@/engine/midiTypes';
@@ -445,6 +445,7 @@ describe('VisualizerEngine Scene Registry & switching', () => {
     expect(sceneA.setup).toHaveBeenCalledTimes(1);
     expect(sceneB.setup).not.toHaveBeenCalled();
     expect(engine.scenes).toEqual([
+      { id: NO_SCENE_ID, label: 'No Scene' },
       { id: 'a', label: 'Scene A' },
       { id: 'b', label: 'Scene B' },
     ]);
@@ -1331,5 +1332,167 @@ describe('VisualizerEngine Crystal Overlay (T15)', () => {
     stub.draw?.();
 
     expect(crystalRects(stub).length).toBe(0);
+  });
+});
+
+describe('VisualizerEngine No Scene (T16)', () => {
+  const deviceA: MidiInputLike = { id: 'dev-a', name: 'Keyboard A' };
+
+  function crystalRects(stub: StubP5): RecordedCall[] {
+    return stub.calls.filter((c) => c.name === 'rect' && (c.args as number[])[2] < 100);
+  }
+
+  it('lists a "No Scene" entry ahead of the registered Scenes', () => {
+    const { factory } = stubP5Factory();
+    const container = document.createElement('div');
+    const sceneA = new FakeScene('a', 'Scene A');
+    const engine = new VisualizerEngine(container, { createP5: factory, scenes: [sceneA] });
+
+    expect(engine.scenes[0]).toEqual({ id: NO_SCENE_ID, label: 'No Scene' });
+  });
+
+  it('selecting No Scene tears down the Active Scene and stops drawing it', () => {
+    const { factory, getInstance } = stubP5Factory();
+    const container = document.createElement('div');
+    const sceneA = new FakeScene('a', 'Scene A');
+    const engine = new VisualizerEngine(container, { createP5: factory, scenes: [sceneA] });
+    const stub = getInstance();
+
+    engine.selectScene(NO_SCENE_ID);
+
+    expect(engine.activeSceneId).toBe(NO_SCENE_ID);
+    expect(sceneA.teardown).toHaveBeenCalledTimes(1);
+
+    sceneA.draw.mockClear();
+    stub.draw?.();
+    expect(sceneA.draw).not.toHaveBeenCalled();
+  });
+
+  it('notifies subscribers and reports empty params when No Scene is selected', () => {
+    const { factory } = stubP5Factory();
+    const container = document.createElement('div');
+    class ParamScene extends FakeScene {
+      readonly params: ParamSpec[] = [
+        { key: 'speed', label: 'Speed', type: 'range', default: 8, min: 1, max: 20 },
+      ];
+    }
+    const scene = new ParamScene('p', 'Param Scene');
+    const engine = new VisualizerEngine(container, { createP5: factory, scenes: [scene] });
+    const listener = vi.fn();
+    engine.subscribe(listener);
+
+    engine.selectScene(NO_SCENE_ID);
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(engine.params).toEqual([]);
+  });
+
+  it('selecting No Scene again is a no-op notification-wise', () => {
+    const { factory } = stubP5Factory();
+    const container = document.createElement('div');
+    const sceneA = new FakeScene('a', 'Scene A');
+    const engine = new VisualizerEngine(container, { createP5: factory, scenes: [sceneA] });
+    engine.selectScene(NO_SCENE_ID);
+    const listener = vi.fn();
+    engine.subscribe(listener);
+
+    engine.selectScene(NO_SCENE_ID);
+
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it('still renders background + Crystals with No Scene active, driven by notes', async () => {
+    const { factory, getInstance } = stubP5Factory();
+    const container = document.createElement('div');
+    const midi = new FakeMidiAccess([deviceA]);
+    const sceneA = new FakeScene('a', 'Scene A');
+    const engine = new VisualizerEngine(container, {
+      createP5: factory,
+      createMidi: fakeMidiFactory(midi),
+      storage: new FakeStorage(),
+      scenes: [sceneA],
+    });
+    await flushMicrotasks();
+    const stub = getInstance();
+
+    engine.selectScene(NO_SCENE_ID);
+    midi.emit('dev-a', [0x90, 60, 100]);
+    stub.calls = [];
+    stub.draw?.();
+
+    expect(stub.calls.some((c) => c.name === 'background')).toBe(true);
+    expect(crystalRects(stub).length).toBe(1);
+  });
+
+  it('persists No Scene as a null activeSceneId', () => {
+    const { factory } = stubP5Factory();
+    const container = document.createElement('div');
+    const sceneA = new FakeScene('a', 'Scene A');
+    const storage = new FakeStorage();
+    const engine = new VisualizerEngine(container, {
+      createP5: factory,
+      storage,
+      scenes: [sceneA],
+    });
+
+    engine.selectScene(NO_SCENE_ID);
+
+    expect(engine.serialize().activeSceneId).toBeNull();
+    expect(JSON.parse(storage.getItem(STORAGE_KEY)!).activeSceneId).toBeNull();
+  });
+
+  it('restores No Scene from a persisted null activeSceneId instead of snapping to a Scene', () => {
+    const { factory } = stubP5Factory();
+    const container = document.createElement('div');
+    const sceneA = new FakeScene('a', 'Scene A');
+    const storage = new FakeStorage();
+    storage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        version: 1,
+        activeSceneId: null,
+        paramValues: {},
+        deviceName: null,
+        resolutionPreset: '1600x800',
+        chromaKeyVisible: true,
+      }),
+    );
+
+    const engine = new VisualizerEngine(container, {
+      createP5: factory,
+      storage,
+      scenes: [sceneA],
+    });
+
+    expect(engine.activeSceneId).toBe(NO_SCENE_ID);
+    expect(sceneA.setup).not.toHaveBeenCalled();
+  });
+
+  it('a first-ever load with nothing persisted still activates the first Scene, not No Scene', () => {
+    const { factory } = stubP5Factory();
+    const container = document.createElement('div');
+    const sceneA = new FakeScene('a', 'Scene A');
+    const engine = new VisualizerEngine(container, {
+      createP5: factory,
+      storage: new FakeStorage(),
+      scenes: [sceneA],
+    });
+
+    expect(engine.activeSceneId).toBe('a');
+    expect(sceneA.setup).toHaveBeenCalledTimes(1);
+  });
+
+  it('can return to a real Scene after selecting No Scene', () => {
+    const { factory } = stubP5Factory();
+    const container = document.createElement('div');
+    const sceneA = new FakeScene('a', 'Scene A');
+    const engine = new VisualizerEngine(container, { createP5: factory, scenes: [sceneA] });
+    engine.selectScene(NO_SCENE_ID);
+    sceneA.setup.mockClear();
+
+    engine.selectScene('a');
+
+    expect(engine.activeSceneId).toBe('a');
+    expect(sceneA.setup).toHaveBeenCalledTimes(1);
   });
 });

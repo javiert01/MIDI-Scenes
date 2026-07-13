@@ -30,6 +30,14 @@ const CHROMA_KEY_GREEN: [number, number, number] = [0, 177, 64];
 /** Single versioned key holding the whole remembered setup (Scene, params, Device, etc). */
 export const STORAGE_KEY = 'midiviz.v1';
 
+/**
+ * Sentinel id for the selectable "No Scene" entry: no Active Scene draws, leaving
+ * only the background and the Overlays. Reserved — no real Scene may use it.
+ * Persisted as a null `activeSceneId`.
+ */
+export const NO_SCENE_ID = 'none';
+const NO_SCENE_LABEL = 'No Scene';
+
 /** Shape written to/read from `STORAGE_KEY`. Device is remembered by name, not id. */
 export interface PersistedStateV1 {
   version: 1;
@@ -177,17 +185,18 @@ export class VisualizerEngine {
         p.createCanvas(this.width, this.height);
         this.lastFrameMillis = p.millis();
         const raw = this.storage?.getItem(STORAGE_KEY);
+        let restored = false;
         if (raw) {
           try {
-            this.restore(JSON.parse(raw));
+            restored = this.restore(JSON.parse(raw));
           } catch {
-            // Corrupt persisted state; fall through to defaults below.
+            // Corrupt persisted state; fall through to the first-ever-load default.
           }
         }
-        if (!this.activeScene) {
-          const [firstScene] = this.registry.list();
-          if (firstScene) this.activateScene(firstScene);
-        }
+        // A valid snapshot fully decides the Active Scene (a real Scene, or No
+        // Scene from a null activeSceneId). Only a first-ever load with nothing
+        // valid persisted defaults to the first Scene.
+        if (!restored && !this.activeScene) this.activateFirstScene();
       };
       p.draw = () => {
         this.renderFrame(p);
@@ -223,13 +232,17 @@ export class VisualizerEngine {
     return Object.keys(RESOLUTION_PRESETS) as ResolutionPresetId[];
   }
 
-  /** Scenes available for the sidebar to list. */
+  /** Scenes available for the sidebar to list, led by the selectable No Scene entry. */
   get scenes(): SceneDescriptor[] {
-    return this.registry.list().map(({ id, label }) => ({ id, label }));
+    return [
+      { id: NO_SCENE_ID, label: NO_SCENE_LABEL },
+      ...this.registry.list().map(({ id, label }) => ({ id, label })),
+    ];
   }
 
-  get activeSceneId(): string | null {
-    return this.activeScene?.id ?? null;
+  /** The Active Scene's id, or `NO_SCENE_ID` when No Scene is active. */
+  get activeSceneId(): string {
+    return this.activeScene?.id ?? NO_SCENE_ID;
   }
 
   /** MIDI Devices available for the sidebar to list. */
@@ -282,8 +295,18 @@ export class VisualizerEngine {
     this.notify();
   }
 
-  /** Switches the Active Scene: tears down the outgoing Scene, sets up the incoming one. */
+  /**
+   * Switches the Active Scene: tears down the outgoing Scene, sets up the incoming
+   * one. Selecting `NO_SCENE_ID` tears the Active Scene down and runs none — leaving
+   * only the background and the Overlays.
+   */
   selectScene(id: string): void {
+    if (id === NO_SCENE_ID) {
+      if (!this.activeScene) return;
+      this.deactivateScene();
+      this.persist();
+      return;
+    }
     if (id === this.activeScene?.id) return;
     const scene = this.registry.get(id);
     if (!scene) return;
@@ -325,11 +348,16 @@ export class VisualizerEngine {
     };
   }
 
-  /** Applies a persisted snapshot: params clamp to current Scene schemas, unknown keys/ids/names are dropped. */
-  restore(data: unknown): void {
-    if (typeof data !== 'object' || data === null) return;
+  /**
+   * Applies a persisted snapshot: params clamp to current Scene schemas, unknown
+   * param keys/Device names are dropped. A null `activeSceneId` restores No Scene;
+   * an unknown Scene id falls back to the first registered Scene. Returns whether a
+   * valid v1 snapshot was applied, so first-ever-load defaulting can be skipped.
+   */
+  restore(data: unknown): boolean {
+    if (typeof data !== 'object' || data === null) return false;
     const state = data as Partial<PersistedStateV1>;
-    if (state.version !== 1) return;
+    if (state.version !== 1) return false;
 
     if (state.paramValues && typeof state.paramValues === 'object') {
       const savedByScene = state.paramValues as Record<string, unknown>;
@@ -361,13 +389,22 @@ export class VisualizerEngine {
 
     if (typeof state.activeSceneId === 'string') {
       const scene = this.registry.get(state.activeSceneId);
-      if (scene && scene !== this.activeScene) this.activateScene(scene);
+      if (scene) {
+        if (scene !== this.activeScene) this.activateScene(scene);
+      } else {
+        // Unknown Scene id: fall back to the first registered Scene.
+        this.activateFirstScene();
+      }
+    } else if (state.activeSceneId === null) {
+      // Explicit No Scene: leave no Active Scene rather than defaulting to one.
+      this.deactivateScene();
     }
 
     this.applyPreferredDeviceName(typeof state.deviceName === 'string' ? state.deviceName : null);
 
     this.cachedParams = this.computeActiveParams();
     this.notify();
+    return true;
   }
 
   /** Registers a listener notified whenever engine state (e.g. Active Scene) changes. */
@@ -413,6 +450,21 @@ export class VisualizerEngine {
     this.lastFrameMillis = this.sceneStartMillis;
     scene.setup(this.buildContext(0, 0));
     this.cachedParams = this.computeActiveParams();
+    this.notify();
+  }
+
+  /** Activates the first registered Scene, if any. A no-op if it is already active. */
+  private activateFirstScene(): void {
+    const [firstScene] = this.registry.list();
+    if (firstScene && firstScene !== this.activeScene) this.activateScene(firstScene);
+  }
+
+  /** Tears the Active Scene down and runs none (No Scene). A no-op if already empty. */
+  private deactivateScene(): void {
+    if (!this.activeScene) return;
+    this.activeScene.teardown();
+    this.activeScene = null;
+    this.cachedParams = [];
     this.notify();
   }
 

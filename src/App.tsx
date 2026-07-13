@@ -200,7 +200,8 @@ function ParamControls({ engine }: { engine: VisualizerEngine }) {
   );
   const activeSceneId = engine.activeSceneId;
 
-  if (params.length === 0 || !activeSceneId) return null;
+  // A real Scene is active whenever it has params; No Scene reports none.
+  if (params.length === 0) return null;
 
   return (
     <AccordionSection title="Parameters">
