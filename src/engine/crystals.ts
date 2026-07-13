@@ -9,7 +9,8 @@ export interface Crystal {
   y: number;
   length: number;
   active: boolean;
-  growing: boolean;
+  /** True while the key is down: the shaft grows in place. On release it falls instead. */
+  held: boolean;
   color: RgbColor;
 }
 
@@ -21,7 +22,6 @@ export const CRYSTAL_COLORS: { left: RgbColor; right: RgbColor } = {
 
 const POOL_SIZE = 12;
 const GROWTH_RATE = 6;
-const MAX_LENGTH = 60;
 const FALL_RATE = 4;
 const CRYSTAL_WIDTH = 6;
 const CRYSTAL_ALPHA = 40;
@@ -32,7 +32,7 @@ function spawnPool(): Crystal[] {
     y: 0,
     length: 0,
     active: false,
-    growing: false,
+    held: false,
     color: CRYSTAL_COLORS.left,
   }));
 }
@@ -63,16 +63,16 @@ export class CrystalField {
     crystal.y = 0;
     crystal.length = 0.5;
     crystal.active = true;
-    crystal.growing = true;
+    crystal.held = true;
     crystal.color = x < width / 2 ? CRYSTAL_COLORS.left : CRYSTAL_COLORS.right;
     this.noteCrystals.set(note, crystal);
   }
 
-  /** Ends growth of the crystal held for `note`, letting it fall; unknown notes are ignored. */
+  /** Releases the crystal held for `note`, letting it fall; unknown notes are ignored. */
   noteOff(note: number): void {
     const crystal = this.noteCrystals.get(note);
     if (!crystal) return;
-    crystal.growing = false;
+    crystal.held = false;
     this.noteCrystals.delete(note);
   }
 
@@ -80,9 +80,10 @@ export class CrystalField {
   update(visHeight: number): void {
     for (const crystal of this.crystals) {
       if (!crystal.active) continue;
-      if (crystal.growing) {
-        crystal.length += GROWTH_RATE;
-        if (crystal.length >= MAX_LENGTH) crystal.growing = false;
+      if (crystal.held) {
+        // Grow in place while the key is down — the longer the hold, the taller
+        // the shaft. Bounded by the visualization height, which is all that's drawable.
+        crystal.length = Math.min(crystal.length + GROWTH_RATE, visHeight);
         continue;
       }
       crystal.y += FALL_RATE;
@@ -109,7 +110,7 @@ export class CrystalField {
   reset(): void {
     for (const crystal of this.crystals) {
       crystal.active = false;
-      crystal.growing = false;
+      crystal.held = false;
     }
     this.noteCrystals.clear();
     this.nextIndex = 0;

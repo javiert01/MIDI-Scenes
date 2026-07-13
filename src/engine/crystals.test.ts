@@ -23,7 +23,7 @@ function activeCrystals(field: CrystalField) {
 }
 
 describe('CrystalField', () => {
-  it('spawns a growing crystal at the pressed key column on note-on', () => {
+  it('spawns a held crystal at the pressed key column on note-on', () => {
     const field = new CrystalField();
 
     field.noteOn(36, WIDTH); // C2 -> column 0
@@ -31,7 +31,7 @@ describe('CrystalField', () => {
     const crystals = activeCrystals(field);
     expect(crystals).toHaveLength(1);
     expect(crystals[0].x).toBeCloseTo(keyColumnX(36, WIDTH));
-    expect(crystals[0].growing).toBe(true);
+    expect(crystals[0].held).toBe(true);
     expect(crystals[0].y).toBe(0);
   });
 
@@ -46,17 +46,32 @@ describe('CrystalField', () => {
     expect(right.color).toEqual(CRYSTAL_COLORS.right);
   });
 
-  it('grows a held crystal each update until it reaches full length, then stops growing', () => {
+  it('keeps growing a held crystal each update — a longer hold yields a taller shaft', () => {
     const field = new CrystalField();
     field.noteOn(36, WIDTH);
     const crystal = activeCrystals(field)[0];
-    const startLength = crystal.length;
 
     field.update(VIS_HEIGHT);
-    expect(crystal.length).toBeGreaterThan(startLength);
+    const afterShortHold = crystal.length;
+    for (let i = 0; i < 5; i++) field.update(VIS_HEIGHT);
+    const afterLongerHold = crystal.length;
 
-    for (let i = 0; i < 50; i++) field.update(VIS_HEIGHT);
-    expect(crystal.growing).toBe(false);
+    expect(afterShortHold).toBeGreaterThan(0.5);
+    expect(afterLongerHold).toBeGreaterThan(afterShortHold);
+    // It stays held and in place (does not start falling on its own).
+    expect(crystal.held).toBe(true);
+    expect(crystal.y).toBe(0);
+  });
+
+  it('bounds a held crystal at the visualization height so it never grows past what is drawable', () => {
+    const field = new CrystalField();
+    field.noteOn(36, WIDTH);
+    const crystal = activeCrystals(field)[0];
+
+    for (let i = 0; i < 1000; i++) field.update(VIS_HEIGHT);
+
+    expect(crystal.length).toBe(VIS_HEIGHT);
+    expect(crystal.held).toBe(true);
   });
 
   it('falls a released crystal down the visualization area and deactivates it at the band top edge', () => {
@@ -75,7 +90,7 @@ describe('CrystalField', () => {
     expect(crystal.y).toBeGreaterThanOrEqual(VIS_HEIGHT);
   });
 
-  it('note-off ends growth of the held crystal without deactivating it', () => {
+  it('note-off releases the held crystal without deactivating it', () => {
     const field = new CrystalField();
     field.noteOn(36, WIDTH);
 
@@ -83,7 +98,7 @@ describe('CrystalField', () => {
 
     const crystal = activeCrystals(field)[0];
     expect(crystal).toBeDefined();
-    expect(crystal.growing).toBe(false);
+    expect(crystal.held).toBe(false);
     expect(crystal.active).toBe(true);
   });
 
@@ -129,10 +144,10 @@ describe('CrystalField', () => {
     // Exhaust the rest of the pool, then one more note-on recycles firstCrystal.
     for (let i = 0; i < poolSize; i++) field.noteOn(37 + i, WIDTH);
 
-    expect(firstCrystal.growing).toBe(true);
-    // A stale note-off for the recycled note must not stop the new owner's growth.
+    expect(firstCrystal.held).toBe(true);
+    // A stale note-off for the recycled note must not release the new owner.
     field.noteOff(36);
-    expect(firstCrystal.growing).toBe(true);
+    expect(firstCrystal.held).toBe(true);
   });
 
   it('clears all crystals and held-note tracking on reset', () => {
