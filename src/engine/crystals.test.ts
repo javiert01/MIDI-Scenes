@@ -35,6 +35,17 @@ describe('CrystalField', () => {
     expect(crystals[0].y).toBe(0);
   });
 
+  it('sizes the shaft as a fraction of the key column, so it scales with the canvas width', () => {
+    const field = new CrystalField();
+
+    field.noteOn(36, WIDTH);
+    field.noteOn(38, WIDTH * 2);
+
+    const [narrow, wide] = activeCrystals(field);
+    expect(narrow.width).toBeGreaterThan(6); // wider than the old fixed 6px shaft
+    expect(wide.width).toBeCloseTo(narrow.width * 2); // proportional to canvas width
+  });
+
   it('colours crystals purple on the left half and orange-red on the right half', () => {
     const field = new CrystalField();
 

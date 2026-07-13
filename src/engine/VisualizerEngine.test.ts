@@ -1242,10 +1242,10 @@ describe('VisualizerEngine MIDI: activity tick', () => {
 describe('VisualizerEngine Crystal Overlay (T15)', () => {
   const deviceA: MidiInputLike = { id: 'dev-a', name: 'Keyboard A' };
 
-  // Crystal shafts are the only rects drawn exactly CRYSTAL_WIDTH (6) px wide;
-  // the Chroma Key band rect is full canvas width.
+  // Crystal shafts are narrow (a fraction of a key column); the only other rect
+  // drawn is the full-width Chroma Key band, so a small width isolates crystals.
   function crystalRects(stub: StubP5): RecordedCall[] {
-    return stub.calls.filter((c) => c.name === 'rect' && (c.args as number[])[2] === 6);
+    return stub.calls.filter((c) => c.name === 'rect' && (c.args as number[])[2] < 100);
   }
 
   async function setUpEngine(scenes: Scene[]) {

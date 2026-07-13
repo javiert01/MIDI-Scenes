@@ -1,5 +1,5 @@
 import type { P5Like } from './types';
-import { keyColumnX } from './keyboardGeometry';
+import { keyColumnX, whiteKeyWidth } from './keyboardGeometry';
 
 export type RgbColor = readonly [number, number, number];
 
@@ -7,6 +7,8 @@ export type RgbColor = readonly [number, number, number];
 export interface Crystal {
   x: number;
   y: number;
+  /** Shaft width in px — a fraction of the key column, so it scales with the resolution. */
+  width: number;
   length: number;
   active: boolean;
   /** True while the key is down: the shaft grows in place. On release it falls instead. */
@@ -14,22 +16,24 @@ export interface Crystal {
   color: RgbColor;
 }
 
-/** Left-half purple, right-half orange-red — unchanged from the original Underwater crystals. */
+/** Left-half purple, right-half orange-red — the hues stay, brightened for visibility as an Overlay. */
 export const CRYSTAL_COLORS: { left: RgbColor; right: RgbColor } = {
-  left: [138, 43, 226],
-  right: [255, 69, 0],
+  left: [170, 85, 255],
+  right: [255, 90, 20],
 };
 
 const POOL_SIZE = 12;
 const GROWTH_RATE = 6;
 const FALL_RATE = 4;
-const CRYSTAL_WIDTH = 6;
-const CRYSTAL_ALPHA = 40;
+/** Shaft width as a fraction of one white key's width — restores the original's chunky look. */
+const CRYSTAL_WIDTH_RATIO = 0.5;
+const CRYSTAL_ALPHA = 150;
 
 function spawnPool(): Crystal[] {
   return Array.from({ length: POOL_SIZE }, () => ({
     x: 0,
     y: 0,
+    width: 0,
     length: 0,
     active: false,
     held: false,
@@ -61,6 +65,7 @@ export class CrystalField {
     const crystal = this.acquire();
     crystal.x = x;
     crystal.y = 0;
+    crystal.width = whiteKeyWidth(width) * CRYSTAL_WIDTH_RATIO;
     crystal.length = 0.5;
     crystal.active = true;
     crystal.held = true;
@@ -102,7 +107,7 @@ export class CrystalField {
       if (height <= 0) continue;
       const [r, g, b] = crystal.color;
       p.fill(r, g, b, CRYSTAL_ALPHA);
-      p.rect(crystal.x, crystal.y, CRYSTAL_WIDTH, height);
+      p.rect(crystal.x, crystal.y, crystal.width, height);
     }
   }
 
