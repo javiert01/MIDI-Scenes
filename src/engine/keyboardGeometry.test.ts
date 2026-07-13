@@ -3,7 +3,9 @@ import {
   KEYBOARD_BASE_NOTE,
   KEYBOARD_TOTAL_WHITE_KEYS,
   keyColumnX,
+  keyLabel,
   keyPosition,
+  keyboardKeys,
   whiteKeyWidth,
 } from '@/engine/keyboardGeometry';
 
@@ -52,5 +54,37 @@ describe('keyboardGeometry', () => {
     expect(black.isWhite).toBe(false);
     expect(white.y).not.toBe(black.y);
     expect(white.x).toBeCloseTo(keyColumnX(36, WIDTH));
+  });
+
+  it('keyLabel names white keys by letter, with an octave suffix only on C', () => {
+    expect(keyLabel(36)).toBe('C2'); // C2, the base note
+    expect(keyLabel(38)).toBe('D'); // D2
+    expect(keyLabel(48)).toBe('C3'); // one octave up
+    expect(keyLabel(60)).toBe('C4');
+  });
+
+  it('keyLabel returns null for black keys', () => {
+    expect(keyLabel(37)).toBeNull(); // C#2
+    expect(keyLabel(39)).toBeNull(); // D#2
+  });
+
+  it('keyboardKeys enumerates every note across the 5-octave board with column, white/black-ness, and label', () => {
+    const keys = keyboardKeys(WIDTH);
+
+    // 5 octaves * 12 semitones = 60 notes, from C2 (36) through B6 (95).
+    expect(keys).toHaveLength(60);
+    expect(keys[0]).toMatchObject({ note: 36, isWhite: true, label: 'C2' });
+    expect(keys.at(-1)).toMatchObject({ note: 95, isWhite: true, label: 'B' });
+
+    const whiteKeys = keys.filter((k) => k.isWhite);
+    expect(whiteKeys).toHaveLength(KEYBOARD_TOTAL_WHITE_KEYS);
+
+    const cKeys = keys.filter((k) => k.label?.startsWith('C') && k.label !== undefined);
+    expect(cKeys.map((k) => k.label)).toEqual(['C2', 'C3', 'C4', 'C5', 'C6']);
+
+    // Each key's x matches keyColumnX, so it aligns with its Crystal column.
+    for (const key of keys) {
+      expect(key.x).toBeCloseTo(keyColumnX(key.note, WIDTH));
+    }
   });
 });

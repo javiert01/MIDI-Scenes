@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NO_SCENE_ID, STORAGE_KEY, VisualizerEngine } from '@/engine/VisualizerEngine';
+import { CRYSTAL_COLORS } from '@/engine/crystals';
 import type { P5Factory, P5Like } from '@/engine/types';
 import type { ParamSpec, Scene, SceneContext, NoteEvent } from '@/engine/scene';
 import type { MidiAccessLike, MidiInputLike, MidiMessageHandler } from '@/engine/midiTypes';
@@ -63,6 +64,18 @@ class StubP5 implements P5Like {
 
   triangle(x1: number, y1: number, x2: number, y2: number, x3: number, y3: number) {
     this.calls.push({ name: 'triangle', args: [x1, y1, x2, y2, x3, y3] });
+  }
+
+  text(str: string, x: number, y: number) {
+    this.calls.push({ name: 'text', args: [str, x, y] });
+  }
+
+  textAlign(horizAlign: string, vertAlign?: string) {
+    this.calls.push({ name: 'textAlign', args: [horizAlign, vertAlign] });
+  }
+
+  textSize(size: number) {
+    this.calls.push({ name: 'textSize', args: [size] });
   }
 
   push() {
@@ -972,6 +985,7 @@ describe('VisualizerEngine session persistence (T11)', () => {
       chromaKeyVisible: false,
       crystalsVisible: true,
       crystalsOpacity: 1,
+      pianoPreviewVisible: false,
     });
   });
 
@@ -1460,6 +1474,142 @@ describe('VisualizerEngine Crystals sidebar controls (T17)', () => {
 
     expect(engine.crystalsVisible).toBe(true);
     expect(engine.crystalsOpacity).toBe(1);
+  });
+});
+
+describe('VisualizerEngine Piano Preview Overlay (T18)', () => {
+  const deviceA: MidiInputLike = { id: 'dev-a', name: 'Keyboard A' };
+
+  // The Piano Preview labels every white key; nothing else calls text(), so
+  // its presence/count is a reliable signal the keyboard was drawn.
+  function labelTexts(stub: StubP5): string[] {
+    return stub.calls.filter((c) => c.name === 'text').map((c) => (c.args as unknown[])[0] as string);
+  }
+
+  // Crystal-colour fills are exactly 3 args (r, g, b); Crystal's own fill call
+  // always carries a 4th alpha arg, so this isolates a held Piano Preview key.
+  function heldKeyFills(stub: StubP5): number[][] {
+    return stub.calls
+      .filter((c) => c.name === 'fill' && (c.args as number[]).length === 3)
+      .map((c) => c.args as number[])
+      .filter(
+        (args) =>
+          args.join(',') === CRYSTAL_COLORS.left.join(',') ||
+          args.join(',') === CRYSTAL_COLORS.right.join(','),
+      );
+  }
+
+  async function setUpEngine(scenes: Scene[] = []) {
+    const { factory, getInstance } = stubP5Factory();
+    const container = document.createElement('div');
+    const midi = new FakeMidiAccess([deviceA]);
+    const engine = new VisualizerEngine(container, {
+      createP5: factory,
+      createMidi: fakeMidiFactory(midi),
+      storage: new FakeStorage(),
+      scenes,
+    });
+    await flushMicrotasks();
+    return { engine, midi, stub: getInstance() };
+  }
+
+  it('defaults to hidden', async () => {
+    const { engine, stub } = await setUpEngine();
+
+    stub.calls = [];
+    stub.draw?.();
+
+    expect(engine.pianoPreviewVisible).toBe(false);
+    expect(labelTexts(stub)).toHaveLength(0);
+  });
+
+  it('setPianoPreviewVisible(true) draws a full keyboard, one label per white key', async () => {
+    const { engine, stub } = await setUpEngine();
+
+    engine.setPianoPreviewVisible(true);
+    stub.calls = [];
+    stub.draw?.();
+
+    expect(labelTexts(stub)).toHaveLength(35);
+    expect(labelTexts(stub)).toContain('C2');
+  });
+
+  it('setPianoPreviewVisible(false) stops drawing the keyboard again', async () => {
+    const { engine, stub } = await setUpEngine();
+    engine.setPianoPreviewVisible(true);
+
+    engine.setPianoPreviewVisible(false);
+    stub.calls = [];
+    stub.draw?.();
+
+    expect(labelTexts(stub)).toHaveLength(0);
+  });
+
+  it('lights a held key in its Crystal half-colour and clears it on release', async () => {
+    const { engine, midi, stub } = await setUpEngine();
+    engine.setPianoPreviewVisible(true);
+
+    midi.emit('dev-a', [0x90, 36, 100]); // C2, left half
+    stub.calls = [];
+    stub.draw?.();
+    expect(heldKeyFills(stub)).toContainEqual([...CRYSTAL_COLORS.left]);
+
+    midi.emit('dev-a', [0x80, 36, 0]);
+    stub.calls = [];
+    stub.draw?.();
+    expect(heldKeyFills(stub)).toHaveLength(0);
+  });
+
+  it('draws on top of the Active Scene and any Scene bleed into the band', async () => {
+    const scene = new FakeScene('a', 'Scene A');
+    scene.draw.mockImplementation((ctx: SceneContext) => {
+      ctx.p.rect(1, 2, 3, 4); // stand-in for Scene bleed into the Chroma Key band
+    });
+    const { engine, stub } = await setUpEngine([scene]);
+    engine.setPianoPreviewVisible(true);
+
+    stub.calls = [];
+    stub.draw?.();
+
+    const sceneRectIndex = stub.calls.findIndex(
+      (c) => c.name === 'rect' && (c.args as number[])[0] === 1 && (c.args as number[])[1] === 2,
+    );
+    const firstLabelIndex = stub.calls.findIndex((c) => c.name === 'text');
+    expect(sceneRectIndex).toBeGreaterThanOrEqual(0);
+    expect(firstLabelIndex).toBeGreaterThan(sceneRectIndex);
+  });
+
+  it('persists pianoPreviewVisible across serialize()/restore()', async () => {
+    const { engine: source } = await setUpEngine();
+    source.setPianoPreviewVisible(true);
+    const snapshot = source.serialize();
+    expect(snapshot.pianoPreviewVisible).toBe(true);
+
+    const { engine: target } = await setUpEngine();
+    target.restore(snapshot);
+
+    expect(target.pianoPreviewVisible).toBe(true);
+  });
+
+  it('falls back to hidden when older persisted state lacks the field', async () => {
+    const { factory } = stubP5Factory();
+    const container = document.createElement('div');
+    const storage = new FakeStorage();
+    storage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        version: 1,
+        activeSceneId: null,
+        paramValues: {},
+        deviceName: null,
+        resolutionPreset: '1600x800',
+        chromaKeyVisible: true,
+      }),
+    );
+
+    const engine = new VisualizerEngine(container, { createP5: factory, storage });
+
+    expect(engine.pianoPreviewVisible).toBe(false);
   });
 });
 

@@ -3,6 +3,7 @@ import type { P5Factory, P5Like } from './types';
 import type { ParamSpec, ParamValue, Scene, SceneContext } from './scene';
 import { SceneRegistry } from './SceneRegistry';
 import { CrystalField } from './crystals';
+import { drawPianoPreview } from './pianoPreview';
 import { parseNoteMessage } from './midi';
 import type { MidiAccessLike, MidiFactory } from './midiTypes';
 import { defaultMidiFactory } from './webMidiAdapter';
@@ -49,6 +50,7 @@ export interface PersistedStateV1 {
   crystalsVisible: boolean;
   /** 0-1, applied to Crystals on every Scene and No Scene alike. */
   crystalsOpacity: number;
+  pianoPreviewVisible: boolean;
 }
 
 export const defaultP5Factory: P5Factory = (sketch, node) =>
@@ -136,6 +138,7 @@ export class VisualizerEngine {
   private chromaKeyVisibleState = true;
   private crystalsVisibleState = true;
   private crystalsOpacityState = 1;
+  private pianoPreviewVisibleState = false;
 
   // The engine owns the Crystal Overlay: a note-on spawns a Crystal regardless
   // of the Active Scene, so Crystals react on every Scene and on No Scene.
@@ -143,6 +146,9 @@ export class VisualizerEngine {
   // Set when a Scene draws Crystals itself via ctx.drawCrystals(); tells
   // renderFrame to skip the engine's default top-of-Scene Crystal draw.
   private crystalsDrawnThisFrame = false;
+  // Notes currently down, independent of the Crystal pool, so the Piano
+  // Preview's held-key lighting survives Crystal pool recycling.
+  private readonly heldNotes = new Set<number>();
 
   private readonly storage?: Storage;
   private midiAccess: MidiAccessLike | null = null;
@@ -274,6 +280,11 @@ export class VisualizerEngine {
     return this.crystalsOpacityState;
   }
 
+  /** Whether the Piano Preview Overlay renders, covering the Chroma Key band. Default off. */
+  get pianoPreviewVisible(): boolean {
+    return this.pianoPreviewVisibleState;
+  }
+
   /** Bumped on every dispatched note-on/off; sidebar can diff it to flash an activity indicator. */
   get activityTick(): number {
     return this.noteActivityTick;
@@ -354,6 +365,14 @@ export class VisualizerEngine {
     this.notify();
   }
 
+  /** Shows or hides the Piano Preview Overlay, which covers the Chroma Key band when on. */
+  setPianoPreviewVisible(visible: boolean): void {
+    if (visible === this.pianoPreviewVisibleState) return;
+    this.pianoPreviewVisibleState = visible;
+    this.persist();
+    this.notify();
+  }
+
   /** Selects the single Device the engine binds MIDI message handlers to. */
   selectDevice(id: string): void {
     if (!this.midiAccess) return;
@@ -379,6 +398,7 @@ export class VisualizerEngine {
       chromaKeyVisible: this.chromaKeyVisibleState,
       crystalsVisible: this.crystalsVisibleState,
       crystalsOpacity: this.crystalsOpacityState,
+      pianoPreviewVisible: this.pianoPreviewVisibleState,
     };
   }
 
@@ -420,6 +440,10 @@ export class VisualizerEngine {
 
     if (typeof state.crystalsOpacity === 'number' && !Number.isNaN(state.crystalsOpacity)) {
       this.crystalsOpacityState = Math.min(1, Math.max(0, state.crystalsOpacity));
+    }
+
+    if (typeof state.pianoPreviewVisible === 'boolean') {
+      this.pianoPreviewVisibleState = state.pianoPreviewVisible;
     }
 
     if (
@@ -591,9 +615,11 @@ export class VisualizerEngine {
     if (parsed.type === 'noteon') {
       // Crystals react independently of the Active Scene (No Scene included).
       this.crystals.noteOn(parsed.event.note, this.width);
+      this.heldNotes.add(parsed.event.note);
       this.activeScene?.onNoteOn(parsed.event, ctx);
     } else {
       this.crystals.noteOff(parsed.event.note);
+      this.heldNotes.delete(parsed.event.note);
       this.activeScene?.onNoteOff(parsed.event, ctx);
     }
     this.noteActivityTick += 1;
@@ -656,5 +682,14 @@ export class VisualizerEngine {
     if (!this.crystalsDrawnThisFrame) {
       this.renderCrystals();
     }
+
+    // Drawn last: covers the Active Scene, any Scene bleed into the band, and Crystals.
+    this.renderPianoPreview();
+  }
+
+  /** Draws the Piano Preview Overlay filling the Chroma Key band, unless toggled off. */
+  private renderPianoPreview(): void {
+    if (!this.pianoPreviewVisibleState) return;
+    drawPianoPreview(this.p, this.width, this.visualizationHeight, this.chromaKeyHeight, this.heldNotes);
   }
 }

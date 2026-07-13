@@ -42,6 +42,7 @@ function App() {
           <ParamControls engine={engine} />
           <ChromaKeyToggle engine={engine} />
           <CrystalsControl engine={engine} />
+          <PianoPreviewToggle engine={engine} />
           <ResolutionPicker engine={engine} />
           <DevicePicker engine={engine} />
         </aside>
@@ -330,6 +331,23 @@ function CrystalsControl({ engine }: { engine: VisualizerEngine }) {
           onChange={(event) => engine.setCrystalsOpacity(event.target.valueAsNumber)}
         />
       </label>
+    </AccordionSection>
+  );
+}
+
+function PianoPreviewToggle({ engine }: { engine: VisualizerEngine }) {
+  const pianoPreviewVisible = useSyncExternalStore(
+    (onChange) => engine.subscribe(onChange),
+    () => engine.pianoPreviewVisible,
+  );
+
+  return (
+    <AccordionSection title="Piano Preview">
+      <ToggleField
+        label="Show Piano Preview"
+        checked={pianoPreviewVisible}
+        onChange={(checked) => engine.setPianoPreviewVisible(checked)}
+      />
     </AccordionSection>
   );
 }
