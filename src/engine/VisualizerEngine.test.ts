@@ -1238,3 +1238,98 @@ describe('VisualizerEngine MIDI: activity tick', () => {
     expect(engine.activityTick).toBe(tickBefore);
   });
 });
+
+describe('VisualizerEngine Crystal Overlay (T15)', () => {
+  const deviceA: MidiInputLike = { id: 'dev-a', name: 'Keyboard A' };
+
+  // Crystal shafts are the only rects drawn exactly CRYSTAL_WIDTH (6) px wide;
+  // the Chroma Key band rect is full canvas width.
+  function crystalRects(stub: StubP5): RecordedCall[] {
+    return stub.calls.filter((c) => c.name === 'rect' && (c.args as number[])[2] === 6);
+  }
+
+  async function setUpEngine(scenes: Scene[]) {
+    const { factory, getInstance } = stubP5Factory();
+    const container = document.createElement('div');
+    const midi = new FakeMidiAccess([deviceA]);
+    const engine = new VisualizerEngine(container, {
+      createP5: factory,
+      createMidi: fakeMidiFactory(midi),
+      storage: new FakeStorage(),
+      scenes,
+    });
+    await flushMicrotasks();
+    return { engine, midi, stub: getInstance() };
+  }
+
+  it('spawns and draws a crystal on note-on even with no Active Scene', async () => {
+    const { midi, stub } = await setUpEngine([]);
+
+    midi.emit('dev-a', [0x90, 60, 100]);
+    stub.calls = [];
+    stub.draw?.();
+
+    expect(crystalRects(stub).length).toBe(1);
+  });
+
+  it('spawns crystals independently of a Scene that ignores notes, drawing them on top', async () => {
+    const scene = new FakeScene('a', 'Scene A'); // onNoteOn/draw are inert vi.fns
+    const { midi, stub } = await setUpEngine([scene]);
+
+    midi.emit('dev-a', [0x90, 60, 100]);
+    stub.calls = [];
+    stub.draw?.();
+
+    // The Scene never called ctx.drawCrystals(), so the engine draws the crystal itself.
+    expect(crystalRects(stub).length).toBe(1);
+  });
+
+  it('lets the Active Scene place crystals via ctx.drawCrystals() without the engine drawing them again', async () => {
+    const scene = new FakeScene('a', 'Scene A');
+    scene.draw.mockImplementation((ctx: SceneContext) => ctx.drawCrystals());
+    const { midi, stub } = await setUpEngine([scene]);
+
+    midi.emit('dev-a', [0x90, 60, 100]);
+    stub.calls = [];
+    stub.draw?.();
+
+    // Drawn exactly once — by the Scene — not a second time by the engine default.
+    expect(crystalRects(stub).length).toBe(1);
+  });
+
+  it('exposes the live crystals and a drawCrystals seam on SceneContext', async () => {
+    const scene = new FakeScene('a', 'Scene A');
+    const { midi, stub } = await setUpEngine([scene]);
+
+    midi.emit('dev-a', [0x90, 60, 100]);
+    stub.draw?.();
+
+    const ctx = scene.draw.mock.calls.at(-1)![0] as SceneContext;
+    expect(ctx.crystals.some((c) => c.active)).toBe(true);
+    expect(typeof ctx.drawCrystals).toBe('function');
+  });
+
+  it('keeps crystals alive across a Scene switch', async () => {
+    const sceneA = new FakeScene('a', 'Scene A');
+    const sceneB = new FakeScene('b', 'Scene B');
+    const { engine, midi, stub } = await setUpEngine([sceneA, sceneB]);
+
+    midi.emit('dev-a', [0x90, 60, 100]);
+    engine.selectScene('b');
+    stub.calls = [];
+    stub.draw?.();
+
+    expect(crystalRects(stub).length).toBe(1);
+  });
+
+  it('clears crystals when the resolution preset changes, since columns are width-relative', async () => {
+    const { engine, midi, stub } = await setUpEngine([]);
+
+    midi.emit('dev-a', [0x90, 60, 100]);
+    engine.setResolutionPreset('1920x1080');
+    stub.calls = [];
+    stub.draw?.();
+
+    expect(crystalRects(stub).length).toBe(0);
+  });
+});

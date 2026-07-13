@@ -1,5 +1,6 @@
 import type { NoteEvent, ParamSpec, Scene, SceneContext } from '@/engine/scene';
 import type { P5Like } from '@/engine/types';
+import { keyPosition } from '@/engine/keyboardGeometry';
 
 type FishPattern = 'traveling' | 'circling' | 'wandering';
 type RgbColor = readonly [number, number, number];
@@ -32,45 +33,11 @@ const JELLYFISH_COLORS: RgbColor[] = [
   [110, 220, 170],
 ];
 
-const CRYSTAL_COLORS: [RgbColor, RgbColor] = [
-  [138, 43, 226],
-  [255, 69, 0],
-];
-
 const FISH_BOOST_SPEED_SCALE = 2;
 const FISH_BOOST_SIZE_SCALE = 0.5;
 const JELLYFISH_BOOST_PULSE_SCALE = 3;
 const JELLYFISH_BOOST_SIZE_SCALE = 0.6;
 const BOOST_DECAY = 0.95;
-
-/** Piano-key note→position model ported from piano.js/key.js (base note id 36, 35 white keys). */
-const BASE_NOTE_ID = 36;
-const WHITE_KEYS_PER_OCTAVE = 7;
-const TOTAL_WHITE_KEYS = 35;
-const BLACK_KEY_X_OFFSET_RATIO = 2 / 3;
-const WHITE_KEY_Y_RATIO = 0.15;
-const BLACK_KEY_Y_RATIO = 0.09375;
-
-interface KeyLayoutEntry {
-  isWhite: boolean;
-  whiteIndex: number;
-}
-
-/** One chromatic octave (C..B), matching the original Piano's white/black key skip pattern. */
-const OCTAVE_KEY_LAYOUT: KeyLayoutEntry[] = [
-  { isWhite: true, whiteIndex: 0 }, // C
-  { isWhite: false, whiteIndex: 0 }, // C#
-  { isWhite: true, whiteIndex: 1 }, // D
-  { isWhite: false, whiteIndex: 1 }, // D#
-  { isWhite: true, whiteIndex: 2 }, // E
-  { isWhite: true, whiteIndex: 3 }, // F
-  { isWhite: false, whiteIndex: 3 }, // F#
-  { isWhite: true, whiteIndex: 4 }, // G
-  { isWhite: false, whiteIndex: 4 }, // G#
-  { isWhite: true, whiteIndex: 5 }, // A
-  { isWhite: false, whiteIndex: 5 }, // A#
-  { isWhite: true, whiteIndex: 6 }, // B
-];
 
 function randomRange(min: number, max: number): number {
   return min + Math.random() * (max - min);
@@ -78,25 +45,6 @@ function randomRange(min: number, max: number): number {
 
 function boundsOf(ctx: SceneContext): Bounds {
   return { width: ctx.width, visHeight: ctx.height - ctx.chromaKeyHeight };
-}
-
-/** Maps a MIDI note number to its piano-key x/y position, following the ported layout. */
-function keyPositionFor(note: number, bounds: Bounds): { x: number; y: number } {
-  const offset = note - BASE_NOTE_ID;
-  const octaveIndex = Math.floor(offset / 12);
-  const semitone = ((offset % 12) + 12) % 12;
-  const layout = OCTAVE_KEY_LAYOUT[semitone];
-  const whiteKeyWidth = bounds.width / TOTAL_WHITE_KEYS;
-  const octaveOriginX = octaveIndex * whiteKeyWidth * WHITE_KEYS_PER_OCTAVE;
-  const whiteX = octaveOriginX + layout.whiteIndex * whiteKeyWidth;
-
-  if (layout.isWhite) {
-    return { x: whiteX, y: bounds.visHeight * WHITE_KEY_Y_RATIO };
-  }
-  return {
-    x: whiteX + BLACK_KEY_X_OFFSET_RATIO * whiteKeyWidth,
-    y: bounds.visHeight * BLACK_KEY_Y_RATIO,
-  };
 }
 
 function distanceSquared(x1: number, y1: number, x2: number, y2: number): number {
@@ -345,51 +293,6 @@ function drawJellyfish(p: P5Like, jelly: Jellyfish, frame: number): void {
   p.pop();
 }
 
-interface CrystalShaft {
-  x: number;
-  y: number;
-  length: number;
-  active: boolean;
-  growing: boolean;
-  color: RgbColor;
-}
-
-const CRYSTAL_POOL_SIZE = 12;
-const CRYSTAL_GROWTH_RATE = 6;
-const CRYSTAL_MAX_LENGTH = 60;
-const CRYSTAL_FALL_RATE = 4;
-
-function spawnCrystalPool(): CrystalShaft[] {
-  return Array.from({ length: CRYSTAL_POOL_SIZE }, () => ({
-    x: 0,
-    y: 0,
-    length: 0,
-    active: false,
-    growing: false,
-    color: CRYSTAL_COLORS[0],
-  }));
-}
-
-function updateCrystal(crystal: CrystalShaft, { visHeight }: Bounds): void {
-  if (!crystal.active) return;
-
-  if (crystal.growing) {
-    crystal.length += CRYSTAL_GROWTH_RATE;
-    if (crystal.length >= CRYSTAL_MAX_LENGTH) crystal.growing = false;
-    return;
-  }
-
-  crystal.y += CRYSTAL_FALL_RATE;
-  if (crystal.y > visHeight) crystal.active = false;
-}
-
-function drawCrystal(p: P5Like, crystal: CrystalShaft): void {
-  if (!crystal.active) return;
-  const [r, g, b] = crystal.color;
-  p.fill(r, g, b, 40);
-  p.rect(crystal.x, crystal.y, 6, crystal.length);
-}
-
 /** Parses a `#RRGGBB` hex color; falls back to the default water color when malformed. */
 function hexToRgb(hex: string): RgbColor {
   const match = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
@@ -397,7 +300,6 @@ function hexToRgb(hex: string): RgbColor {
   return [parseInt(match[1], 16), parseInt(match[2], 16), parseInt(match[3], 16)];
 }
 
-/** Darkens the surface color toward a deep-water tone, matching the original hardcoded gradient. */
 /** Grows or shrinks `items` in place to match `targetLength`, spawning new entries as needed. */
 function resizePopulation<T>(items: T[], targetLength: number, spawn: () => T): void {
   while (items.length < targetLength) items.push(spawn());
@@ -417,7 +319,11 @@ function drawWaterBackground(p: P5Like, { width, visHeight }: Bounds, surface: R
   }
 }
 
-/** Revived from fish.js/jellyfish.js/crystal.js/piano.js/key.js. */
+/**
+ * Revived from fish.js/jellyfish.js/piano.js/key.js. Crystals are no longer this
+ * Scene's — they are an engine-owned Overlay (ADR 0004); the Scene only chooses
+ * where to render them, drawing them behind its creatures via ctx.drawCrystals().
+ */
 export class UnderwaterScene implements Scene {
   readonly id = 'underwater';
   readonly label = 'Underwater';
@@ -459,11 +365,7 @@ export class UnderwaterScene implements Scene {
 
   private fish: Fish[] = [];
   private jellyfish: Jellyfish[] = [];
-  private crystals: CrystalShaft[] = [];
   private frame = 0;
-  /** Tracks which pooled crystal is growing for each currently-held note, keyed by MIDI note id. */
-  private noteCrystals = new Map<number, CrystalShaft>();
-  private nextCrystalIndex = 0;
 
   setup(ctx: SceneContext): void {
     const bounds = boundsOf(ctx);
@@ -472,10 +374,7 @@ export class UnderwaterScene implements Scene {
 
     this.fish = Array.from({ length: fishCount }, () => spawnFish(bounds));
     this.jellyfish = Array.from({ length: jellyfishCount }, () => spawnJellyfish(bounds));
-    this.crystals = spawnCrystalPool();
     this.frame = 0;
-    this.noteCrystals.clear();
-    this.nextCrystalIndex = 0;
   }
 
   update(ctx: SceneContext): void {
@@ -490,7 +389,6 @@ export class UnderwaterScene implements Scene {
 
     for (const fish of this.fish) updateFish(fish, this.frame, bounds, speedScale);
     for (const jelly of this.jellyfish) updateJellyfish(jelly, this.frame, bounds, speedScale);
-    for (const crystal of this.crystals) updateCrystal(crystal, bounds);
   }
 
   draw(ctx: SceneContext): void {
@@ -501,7 +399,9 @@ export class UnderwaterScene implements Scene {
     p.push();
     drawWaterBackground(p, bounds, waterColor);
 
-    for (const crystal of this.crystals) drawCrystal(p, crystal);
+    // Draw the engine's Crystals here — after the water, before the creatures — so
+    // they read as behind the fish/jellyfish (their placement in the original Scene).
+    ctx.drawCrystals();
     for (const jelly of this.jellyfish) drawJellyfish(p, jelly, this.frame);
     for (const fish of this.fish) drawFish(p, fish);
 
@@ -510,47 +410,19 @@ export class UnderwaterScene implements Scene {
 
   onNoteOn(event: NoteEvent, ctx: SceneContext): void {
     const bounds = boundsOf(ctx);
-    const pos = keyPositionFor(event.note, bounds);
-
-    const crystal = this.acquireCrystal();
-    crystal.x = pos.x;
-    crystal.y = 0;
-    crystal.length = 0.5;
-    crystal.active = true;
-    crystal.growing = true;
-    crystal.color = pos.x < bounds.width / 2 ? CRYSTAL_COLORS[0] : CRYSTAL_COLORS[1];
-    this.noteCrystals.set(event.note, crystal);
-
+    // Crystals are spawned by the engine; the Scene only boosts the creature
+    // nearest the pressed key, scaled by velocity.
+    const pos = keyPosition(event.note, bounds.width, bounds.visHeight);
     const nearest = findNearest<Fish | Jellyfish>(pos.x, pos.y, [...this.fish, ...this.jellyfish]);
     if (nearest) nearest.boost = event.velocity;
   }
 
-  onNoteOff(event: NoteEvent, _ctx: SceneContext): void {
-    const crystal = this.noteCrystals.get(event.note);
-    if (!crystal) return;
-    crystal.growing = false;
-    this.noteCrystals.delete(event.note);
+  onNoteOff(): void {
+    // Crystals fall on release inside the engine; the Scene has nothing to do.
   }
 
   teardown(): void {
     this.fish = [];
     this.jellyfish = [];
-    this.crystals = [];
-    this.noteCrystals.clear();
-  }
-
-  /** Reuses a free pooled crystal, or recycles the oldest one round-robin if the pool is full. */
-  private acquireCrystal(): CrystalShaft {
-    const free = this.crystals.find((c) => !c.active);
-    if (free) return free;
-
-    const crystal = this.crystals[this.nextCrystalIndex % this.crystals.length];
-    this.nextCrystalIndex += 1;
-    // The recycled crystal may still be tracked for a held note; drop that stale
-    // mapping so a later onNoteOff for it can't reach into what is now a different note's crystal.
-    for (const [note, tracked] of this.noteCrystals) {
-      if (tracked === crystal) this.noteCrystals.delete(note);
-    }
-    return crystal;
   }
 }

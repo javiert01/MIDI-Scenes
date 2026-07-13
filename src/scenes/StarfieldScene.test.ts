@@ -18,6 +18,8 @@ function makeCtx(overrides: Partial<SceneContext> = {}): SceneContext {
     params: { starCount: 1, speed: 8 },
     elapsed: 0,
     deltaTime: 16,
+    crystals: [],
+    drawCrystals: () => {},
     ...overrides,
   };
 }

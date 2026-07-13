@@ -1,4 +1,5 @@
 import type { P5Like } from './types';
+import type { Crystal } from './crystals';
 
 export type ParamType = 'range' | 'toggle' | 'color' | 'select';
 
@@ -36,6 +37,15 @@ export interface SceneContext {
   params: Record<string, ParamValue>;
   elapsed: number;
   deltaTime: number;
+  /** The engine-owned Crystals for this frame — a Scene may inspect them, or ignore them entirely. */
+  crystals: readonly Crystal[];
+  /**
+   * Draws the current Crystals at this point in the Scene's own draw order (e.g.
+   * Underwater draws them behind its creatures). Calling it opts the Scene out of
+   * the engine's default top-of-Scene Crystal draw for this frame; a Scene that
+   * never calls it gets Crystals drawn on top by the engine.
+   */
+  drawCrystals: () => void;
 }
 
 export interface Scene {

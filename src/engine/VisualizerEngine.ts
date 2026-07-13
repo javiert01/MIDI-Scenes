@@ -2,6 +2,7 @@ import p5 from 'p5';
 import type { P5Factory, P5Like } from './types';
 import type { ParamSpec, ParamValue, Scene, SceneContext } from './scene';
 import { SceneRegistry } from './SceneRegistry';
+import { CrystalField } from './crystals';
 import { parseNoteMessage } from './midi';
 import type { MidiAccessLike, MidiFactory } from './midiTypes';
 import { defaultMidiFactory } from './webMidiAdapter';
@@ -122,6 +123,13 @@ export class VisualizerEngine {
   private sceneStartMillis = 0;
   private lastFrameMillis = 0;
   private chromaKeyVisibleState = true;
+
+  // The engine owns the Crystal Overlay: a note-on spawns a Crystal regardless
+  // of the Active Scene, so Crystals react on every Scene and on No Scene.
+  private readonly crystals = new CrystalField();
+  // Set when a Scene draws Crystals itself via ctx.drawCrystals(); tells
+  // renderFrame to skip the engine's default top-of-Scene Crystal draw.
+  private crystalsDrawnThisFrame = false;
 
   private readonly storage?: Storage;
   private midiAccess: MidiAccessLike | null = null;
@@ -393,6 +401,8 @@ export class VisualizerEngine {
       visualizationHeight: this.visualizationHeightState,
     } = this.splitHeight(preset.height));
     this.p.resizeCanvas(preset.width, preset.height);
+    // Crystal columns are relative to the old width; drop them so none linger off-column.
+    this.crystals.reset();
     return true;
   }
 
@@ -481,14 +491,16 @@ export class VisualizerEngine {
   }
 
   private handleRawMessage(data: number[]): void {
-    if (!this.activeScene) return;
     const parsed = parseNoteMessage(data);
     if (!parsed) return;
     const ctx = this.buildContext(this.p.millis() - this.sceneStartMillis, 0);
     if (parsed.type === 'noteon') {
-      this.activeScene.onNoteOn(parsed.event, ctx);
+      // Crystals react independently of the Active Scene (No Scene included).
+      this.crystals.noteOn(parsed.event.note, this.width);
+      this.activeScene?.onNoteOn(parsed.event, ctx);
     } else {
-      this.activeScene.onNoteOff(parsed.event, ctx);
+      this.crystals.noteOff(parsed.event.note);
+      this.activeScene?.onNoteOff(parsed.event, ctx);
     }
     this.noteActivityTick += 1;
     this.notify();
@@ -504,7 +516,15 @@ export class VisualizerEngine {
       params: (scene && this.paramValues.get(scene.id)) ?? {},
       elapsed,
       deltaTime,
+      crystals: this.crystals.all,
+      drawCrystals: () => this.drawCrystals(),
     };
+  }
+
+  /** The Crystal-placement seam: a Scene calls this to draw Crystals in its own draw order. */
+  private drawCrystals(): void {
+    this.crystalsDrawnThisFrame = true;
+    this.crystals.draw(this.p, this.visualizationHeight);
   }
 
   private renderFrame(p: P5Like): void {
@@ -515,15 +535,26 @@ export class VisualizerEngine {
       p.rect(0, this.visualizationHeight, this.width, this.chromaKeyHeight);
     }
 
-    if (!this.activeScene) return;
+    // Crystals advance every frame, independent of whether a Scene is active,
+    // so the Overlay keeps living on No Scene.
+    this.crystals.update(this.visualizationHeight);
+    this.crystalsDrawnThisFrame = false;
 
-    const now = p.millis();
-    const deltaTime = now - this.lastFrameMillis;
-    const elapsed = now - this.sceneStartMillis;
-    this.lastFrameMillis = now;
+    if (this.activeScene) {
+      const now = p.millis();
+      const deltaTime = now - this.lastFrameMillis;
+      const elapsed = now - this.sceneStartMillis;
+      this.lastFrameMillis = now;
 
-    const ctx = this.buildContext(elapsed, deltaTime);
-    this.activeScene.update(ctx);
-    this.activeScene.draw(ctx);
+      const ctx = this.buildContext(elapsed, deltaTime);
+      this.activeScene.update(ctx);
+      this.activeScene.draw(ctx);
+    }
+
+    // The Scene may have drawn Crystals itself (via ctx.drawCrystals()) somewhere
+    // in its own order; if it did not — and on No Scene — the engine draws them on top.
+    if (!this.crystalsDrawnThisFrame) {
+      this.crystals.draw(this.p, this.visualizationHeight);
+    }
   }
 }
