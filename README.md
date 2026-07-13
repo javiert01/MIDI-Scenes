@@ -1,157 +1,81 @@
-# MIDI Visualizer - Underwater Piano Experience
+# MIDI Visualizer
 
-An interactive underwater-themed MIDI visualizer built with p5.js that transforms piano playing into a dynamic aquatic ecosystem.
+Play your MIDI keyboard, watch it come alive on screen. A browser app that turns
+live playing into real-time visuals — underwater fish and jellyfish, a
+starfield, glowing crystals rising from each key you press — with a layout
+built for recording alongside piano-hands footage.
 
 ## Features
 
-### Visual Elements
+- **Scenes** — switchable visualizations you pick from the sidebar:
+  - **Underwater**: fish and jellyfish that dart, glow, and pulse with your
+    playing's velocity and position on the keyboard
+  - **Starfield**: a reactive starfield
+  - **No Scene**: just the background and Overlays, for a minimal composition
+- **Crystals** — a glowing shaft grows from the column under whichever key
+  you're holding, on every Scene (purple on the left half of the keyboard,
+  orange on the right)
+- **Piano Preview** — an optional on-screen keyboard that lights up as you
+  play, letting you judge a recording's composition before you actually record
+  your hands
+- **Chroma Key band** — a green strip along the bottom of the canvas, ready to
+  key out in your video editor and replace with piano-hands footage
+- **Present Mode** — hide the sidebar for a clean, fullscreen view when
+  recording or performing
+- Every setting (Scene, sidebar toggles, resolution, MIDI device) is
+  remembered across reloads
 
-- **Underwater Environment**: Deep ocean blue gradient background transitioning from lighter blue at the surface to darker depths
-- **Crystals**: Geometric crystal formations that grow from piano keys
-- **Fish**: Detailed fish with three movement patterns:
-  - **Traveling**: Smooth horizontal swimming with vertical undulation
-  - **Circling**: Elliptical orbital motion
-  - **Wandering**: Random direction changes creating exploratory behavior
-- **Jellyfish**: Bioluminescent jellyfish with:
-  - Pulsing bell animation
-  - 6-12 flowing tentacles with wave motion
-  - 4 oral arms (feeding tentacles)
-  - Color variations: blue-cyan, pink-purple, green-cyan
+## Getting started
 
-### MIDI Velocity Response
+You'll need a modern browser with Web MIDI support (Chrome, Edge, or Opera —
+see [Browser support](#browser-support) below) and a MIDI keyboard or
+controller.
 
-Both fish and jellyfish respond dynamically to piano playing velocity (0-127):
-
-#### Fish Effects
-- **Speed burst**: 1x to 3x base speed
-- **Size scaling**: 1x to 1.5x size
-- **Brightness boost**: +0 to +50 brightness
-- **Decay rate**: 0.95 (returns to normal in ~1-2 seconds)
-
-#### Jellyfish Effects
-- **Pulse speed**: 1x to 4x faster pulsing
-- **Size expansion**: 1x to 1.6x size
-- **Glow intensity**: +60 brightness, +40 saturation
-- **Tentacle motion**: 1x to 2.5x wave amplitude
-- **Decay rate**: 0.93 (graceful return over ~1.5-2.5 seconds)
-
-### Spatial Mapping
-
-The nearest creature (fish or jellyfish) to the pressed piano key responds to that note, creating an intuitive spatial relationship between the keyboard and the underwater scene.
-
-### Chroma Key Support
-
-Canvas is divided into two sections:
-- **Top 2/3 (1000x533px)**: Underwater visualization
-- **Bottom 1/3 (1000x267px)**: Professional chroma key green (RGB: 0, 177, 64)
-
-This layout enables recording the visualization and compositing it with piano performance footage using video editing software.
-
-## Setup
-
-### Prerequisites
-
-- Modern web browser with Web MIDI API support (Chrome, Edge, Opera)
-- MIDI keyboard or controller connected to your computer
-
-### Installation
-
-1. Clone or download this repository
-2. No build process required - all dependencies are loaded via CDN
-
-### Running the Visualizer
-
-1. Connect your MIDI keyboard to your computer
-2. Open `index.html` in a supported web browser
-3. Grant MIDI access permission when prompted
-4. Start playing - the underwater world responds to your music!
-
-## File Structure
-
-```
-MIDI Visualizer/
-├── index.html          # Main HTML file with script loading order
-├── sketch.js           # Main p5.js sketch, MIDI handling, canvas layout
-├── piano.js            # Piano keyboard representation
-├── key.js              # Individual piano key class
-├── crystal.js          # Crystal visualization class
-├── fish.js             # Fish class with velocity response
-├── jellyfish.js        # Jellyfish class with velocity response
-├── particle.js         # Particle system for firework effects
-├── firework.js         # Firework class (legacy)
-├── spring.js           # Spring physics (legacy)
-├── star.js             # Star effects (legacy)
-├── spaceStar.js        # Space star effects (legacy)
-├── style.css           # CSS styling
-└── README.md           # This file
+```bash
+npm install
+npm run dev
 ```
 
-## Technical Details
+Open the printed local URL, grant MIDI access when prompted, and start
+playing.
 
-### Canvas Dimensions
-- Total: 1500x800px
-- Visualization area: 1500x533px (top 2/3)
-- Chroma key area: 1500x267px (bottom 1/3)
+## Using it
 
-### Creature Counts
-- Fish: 10-16 randomly generated
-- Jellyfish: 6-9 randomly generated
+- **Scenes** sidebar section switches the active visualization
+- **Chroma Key**, **Crystals**, and **Piano Preview** sections toggle those
+  Overlays and (where relevant) their opacity
+- **Resolution** switches the canvas between preset sizes for recording
+- **MIDI Device** lets you pick which connected keyboard the app listens to
+- **Present Mode** hides the sidebar; press Escape or use the exit button to
+  bring it back
 
-### Color System
-- **Creatures**: HSB color mode for natural hue-based variations
-- **Backgrounds**: RGB color mode
+### Recording with piano-hands footage
 
-### Performance
-- Object pooling for crystals
-- Efficient nearest-neighbor search (O(n) per note where n = total creatures)
-- Decay calculations using linear interpolation
-- No dynamic object allocation during velocity response
+1. Turn on **Piano Preview** to check your framing before you record for real
+2. Record the app in Present Mode (screen capture) and your hands separately
+3. In your video editor, chroma-key out the green band and composite your
+   hands footage into it
 
-## Usage Tips
+## Browser support
 
-### For Musicians
-- **Soft playing** (low velocity): Subtle creature responses, gentle glows
-- **Medium playing** (mid velocity): Noticeable speed bursts and brightness
-- **Hard playing** (high velocity): Dramatic effects - fish dart, jellyfish pulse rapidly with intense bioluminescence
-- **Low notes** (left keys): Affect creatures on the left side
-- **High notes** (right keys): Affect creatures on the right side
+Web MIDI is required, so **Chrome, Edge, and Opera** work out of the box.
+Firefox and Safari don't support it natively.
 
-### For Video Production
-1. Record the visualizer in fullscreen (use screen capture software)
-2. Record piano performance separately or simultaneously
-3. In your video editor:
-   - Import both recordings
-   - Apply chroma key effect to remove the green bottom section
-   - Composite piano hands footage in the bottom third
-   - Result: Piano hands appear below the underwater visualization
+## Development
 
-## Browser Compatibility
+```bash
+npm run dev      # start the dev server
+npm test         # run the test suite
+npm run lint     # lint + format check
+npm run build    # typecheck and build for production
+```
 
-- **Chrome**: Full support ✓
-- **Edge**: Full support ✓
-- **Opera**: Full support ✓
-- **Firefox**: Limited support (Web MIDI API requires extension)
-- **Safari**: Limited support (Web MIDI API not natively supported)
-
-## Dependencies
-
-- [p5.js v1.9.4](https://p5js.org/) - Creative coding framework
-- [p5.sound](https://p5js.org/reference/#/libraries/p5.sound) - Audio library (loaded but not currently used)
-- Web MIDI API - Browser-native MIDI support
-
-## Future Enhancement Ideas
-
-- Add coral reef elements
-- Implement schools of fish that move together
-- Add particle effects for bubbles
-- Create different underwater scenes (shallow reef, deep ocean, kelp forest)
-- Add sound synthesis to complement the visuals
-- Support for different MIDI control changes (modulation, sustain pedal)
+The app is a Vite + React + TypeScript project, with a framework-agnostic
+`VisualizerEngine` driving a single p5.js canvas. See [CONTEXT.md](CONTEXT.md)
+for the domain vocabulary (Scene, Overlay, Crystal, etc.) and
+[docs/adr/](docs/adr/) for the architectural decisions behind it.
 
 ## License
 
-This project is open source. Feel free to modify and use for your own creative projects.
-
-## Credits
-
-Created with p5.js and inspired by the beauty of underwater ecosystems and music visualization.
+This project is open source. Feel free to modify and use for your own
+creative projects.
