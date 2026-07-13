@@ -14,6 +14,14 @@ const KEY_STROKE: RgbColor = [60, 60, 60];
 const LABEL_FILL: RgbColor = [70, 70, 70];
 const LABEL_FILL_HELD: RgbColor = [255, 255, 255];
 
+/** Per-call context threaded through every key draw: unchanged across a single frame's keys. */
+interface RenderContext {
+  p: P5Like;
+  width: number;
+  bandTop: number;
+  heldNotes: ReadonlySet<number>;
+}
+
 /**
  * Draws the Piano Preview Overlay: a full-band reactive keyboard standing in
  * for the piano-hands footage. Shares the Crystal columns' geometry so each
@@ -27,6 +35,7 @@ export function drawPianoPreview(
   bandHeight: number,
   heldNotes: ReadonlySet<number>,
 ): void {
+  const ctx: RenderContext = { p, width, bandTop, heldNotes };
   const keys = keyboardKeys(width);
   const whiteWidth = whiteKeyWidth(width);
   const blackWidth = whiteWidth * BLACK_KEY_WIDTH_RATIO;
@@ -37,11 +46,11 @@ export function drawPianoPreview(
   // White keys first, then black keys on top, matching the original piano's draw order.
   for (const key of keys) {
     if (!key.isWhite) continue;
-    drawKeyRect(p, key.x, key.note, width, bandTop, whiteWidth, bandHeight, heldNotes, WHITE_KEY_FILL);
+    drawKeyRect(ctx, key.x, key.note, whiteWidth, bandHeight, WHITE_KEY_FILL);
   }
   for (const key of keys) {
     if (key.isWhite) continue;
-    drawKeyRect(p, key.x, key.note, width, bandTop, blackWidth, blackHeight, heldNotes, BLACK_KEY_FILL);
+    drawKeyRect(ctx, key.x, key.note, blackWidth, blackHeight, BLACK_KEY_FILL);
   }
 
   p.noStroke();
@@ -56,18 +65,15 @@ export function drawPianoPreview(
 }
 
 function drawKeyRect(
-  p: P5Like,
+  ctx: RenderContext,
   x: number,
   note: number,
-  fullWidth: number,
-  bandTop: number,
   keyWidth: number,
   keyHeight: number,
-  heldNotes: ReadonlySet<number>,
   restFill: RgbColor,
 ): void {
-  const held = heldNotes.has(note);
-  const [r, g, b] = held ? (x < fullWidth / 2 ? CRYSTAL_COLORS.left : CRYSTAL_COLORS.right) : restFill;
-  p.fill(r, g, b);
-  p.rect(x, bandTop, keyWidth, keyHeight);
+  const held = ctx.heldNotes.has(note);
+  const [r, g, b] = held ? (x < ctx.width / 2 ? CRYSTAL_COLORS.left : CRYSTAL_COLORS.right) : restFill;
+  ctx.p.fill(r, g, b);
+  ctx.p.rect(x, ctx.bandTop, keyWidth, keyHeight);
 }

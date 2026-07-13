@@ -20,38 +20,24 @@ const KEYBOARD_OCTAVES = KEYBOARD_TOTAL_WHITE_KEYS / WHITE_KEYS_PER_OCTAVE;
 interface KeyLayoutEntry {
   isWhite: boolean;
   whiteIndex: number;
+  /** The white key's note letter; null for a black key (unlabelled in the Piano Preview). */
+  letter: string | null;
 }
-
-/** White-key letter per semitone (C..B), matching OCTAVE_KEY_LAYOUT's order; null marks a black key. */
-const NOTE_LETTERS: readonly (string | null)[] = [
-  'C',
-  null,
-  'D',
-  null,
-  'E',
-  'F',
-  null,
-  'G',
-  null,
-  'A',
-  null,
-  'B',
-];
 
 /** One chromatic octave (C..B), matching the original Piano's white/black key skip pattern. */
 const OCTAVE_KEY_LAYOUT: KeyLayoutEntry[] = [
-  { isWhite: true, whiteIndex: 0 }, // C
-  { isWhite: false, whiteIndex: 0 }, // C#
-  { isWhite: true, whiteIndex: 1 }, // D
-  { isWhite: false, whiteIndex: 1 }, // D#
-  { isWhite: true, whiteIndex: 2 }, // E
-  { isWhite: true, whiteIndex: 3 }, // F
-  { isWhite: false, whiteIndex: 3 }, // F#
-  { isWhite: true, whiteIndex: 4 }, // G
-  { isWhite: false, whiteIndex: 4 }, // G#
-  { isWhite: true, whiteIndex: 5 }, // A
-  { isWhite: false, whiteIndex: 5 }, // A#
-  { isWhite: true, whiteIndex: 6 }, // B
+  { isWhite: true, whiteIndex: 0, letter: 'C' },
+  { isWhite: false, whiteIndex: 0, letter: null }, // C#
+  { isWhite: true, whiteIndex: 1, letter: 'D' },
+  { isWhite: false, whiteIndex: 1, letter: null }, // D#
+  { isWhite: true, whiteIndex: 2, letter: 'E' },
+  { isWhite: true, whiteIndex: 3, letter: 'F' },
+  { isWhite: false, whiteIndex: 3, letter: null }, // F#
+  { isWhite: true, whiteIndex: 4, letter: 'G' },
+  { isWhite: false, whiteIndex: 4, letter: null }, // G#
+  { isWhite: true, whiteIndex: 5, letter: 'A' },
+  { isWhite: false, whiteIndex: 5, letter: null }, // A#
+  { isWhite: true, whiteIndex: 6, letter: 'B' },
 ];
 
 export interface KeyPosition {
@@ -65,12 +51,12 @@ export function whiteKeyWidth(width: number): number {
   return width / KEYBOARD_TOTAL_WHITE_KEYS;
 }
 
-/** Splits a note into its octave (relative to C2), semitone, and layout entry within that octave. */
-function decompose(note: number): { octaveIndex: number; semitone: number; layout: KeyLayoutEntry } {
+/** Splits a note into its octave (relative to C2) and its layout entry within that octave. */
+function decompose(note: number): { octaveIndex: number; layout: KeyLayoutEntry } {
   const offset = note - KEYBOARD_BASE_NOTE;
   const octaveIndex = Math.floor(offset / 12);
   const semitone = ((offset % 12) + 12) % 12;
-  return { octaveIndex, semitone, layout: OCTAVE_KEY_LAYOUT[semitone] };
+  return { octaveIndex, layout: OCTAVE_KEY_LAYOUT[semitone] };
 }
 
 /** The x of a note's key column within a canvas of `width` — what a Crystal spawns at. */
@@ -101,10 +87,9 @@ export function keyPosition(note: number, width: number, visHeight: number): Key
  * are unlabelled, returning null.
  */
 export function keyLabel(note: number): string | null {
-  const { octaveIndex, semitone } = decompose(note);
-  const letter = NOTE_LETTERS[semitone];
-  if (letter === null) return null;
-  return letter === 'C' ? `${letter}${octaveIndex + 2}` : letter;
+  const { octaveIndex, layout } = decompose(note);
+  if (layout.letter === null) return null;
+  return layout.letter === 'C' ? `C${octaveIndex + 2}` : layout.letter;
 }
 
 export interface KeyboardKey {
