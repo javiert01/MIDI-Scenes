@@ -28,6 +28,8 @@ const FALL_RATE = 4;
 /** Shaft width as a fraction of one white key's width — restores the original's chunky look. */
 const CRYSTAL_WIDTH_RATIO = 0.5;
 const CRYSTAL_ALPHA = 150;
+/** Clear space a held shaft keeps above an earlier crystal falling below it in the same column. */
+const CRYSTAL_MIN_GAP = 6;
 
 function spawnPool(): Crystal[] {
   return Array.from({ length: POOL_SIZE }, () => ({
@@ -87,8 +89,12 @@ export class CrystalField {
       if (!crystal.active) continue;
       if (crystal.held) {
         // Grow in place while the key is down — the longer the hold, the taller
-        // the shaft. Bounded by the visualization height, which is all that's drawable.
-        crystal.length = Math.min(crystal.length + GROWTH_RATE, visHeight);
+        // the shaft — but never down into an earlier crystal still falling below
+        // it in the same column, so replays of a note never overlap.
+        crystal.length = Math.min(
+          crystal.length + GROWTH_RATE,
+          this.growthCeiling(crystal, visHeight),
+        );
         continue;
       }
       crystal.y += FALL_RATE;
@@ -96,6 +102,18 @@ export class CrystalField {
       // gone before any part could render inside the Chroma Key band.
       if (crystal.y >= visHeight) crystal.active = false;
     }
+  }
+
+  /** How far a held shaft may extend below its anchor: to the floor, or just above the crystal below it. */
+  private growthCeiling(held: Crystal, visHeight: number): number {
+    let ceiling = visHeight - held.y;
+    for (const other of this.crystals) {
+      if (other === held || !other.active || other.x !== held.x) continue;
+      if (other.y <= held.y) continue; // only crystals falling below this one
+      const roomAbove = other.y - CRYSTAL_MIN_GAP - held.y;
+      if (roomAbove < ceiling) ceiling = roomAbove;
+    }
+    return Math.max(ceiling, 0);
   }
 
   /** Draws every active crystal, clipping each shaft so it never spills into the Chroma Key band. */

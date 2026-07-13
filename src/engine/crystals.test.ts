@@ -101,6 +101,29 @@ describe('CrystalField', () => {
     expect(crystal.y).toBeGreaterThanOrEqual(VIS_HEIGHT);
   });
 
+  it('never lets a held crystal grow into an earlier falling one on the same note — the first stays ahead', () => {
+    const field = new CrystalField();
+    // First note: a quick tap, released so it starts falling.
+    field.noteOn(60, WIDTH);
+    field.noteOff(60);
+    field.update(VIS_HEIGHT);
+    // Same note again, held long this time.
+    field.noteOn(60, WIDTH);
+
+    const falling = field.all.find((c) => c.active && !c.held)!;
+    const held = field.all.find((c) => c.active && c.held)!;
+    expect(falling).toBeDefined();
+    expect(held).toBeDefined();
+
+    // Across the whole fall, the held shaft's bottom must stay above the falling one's top.
+    for (let i = 0; i < 500 && falling.active; i++) {
+      field.update(VIS_HEIGHT);
+      if (held.active && falling.active) {
+        expect(held.y + held.length).toBeLessThanOrEqual(falling.y);
+      }
+    }
+  });
+
   it('note-off releases the held crystal without deactivating it', () => {
     const field = new CrystalField();
     field.noteOn(36, WIDTH);
