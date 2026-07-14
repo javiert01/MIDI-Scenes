@@ -16,3 +16,7 @@ The five canonical triage roles, label strings unchanged from the defaults. See 
 ### Domain docs
 
 Single-context: root `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.md`.
+
+### Scene authoring
+
+Requirements and elicitation questions for building a new Scene. See `docs/agents/scene-authoring.md`.
