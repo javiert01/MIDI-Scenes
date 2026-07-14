@@ -198,19 +198,21 @@ describe('CrystalField', () => {
     expect(p.calls.some((c) => c.name === 'rect')).toBe(false);
   });
 
-  it('recycles the oldest crystal when the pool is exhausted, dropping its stale note mapping', () => {
+  it('grows the pool past its initial size instead of stealing a still-active crystal', () => {
     const field = new CrystalField();
-    const poolSize = field.all.length;
+    const initialPoolSize = field.all.length;
 
     field.noteOn(36, WIDTH);
     const firstCrystal = field.all[0];
-    // Exhaust the rest of the pool, then one more note-on recycles firstCrystal.
-    for (let i = 0; i < poolSize; i++) field.noteOn(37 + i, WIDTH);
+    // Exhaust the rest of the pool, then one more note-on — the pool should
+    // grow rather than recycle firstCrystal out from under its held note.
+    for (let i = 0; i < initialPoolSize; i++) field.noteOn(37 + i, WIDTH);
 
+    expect(field.all.length).toBeGreaterThan(initialPoolSize);
     expect(firstCrystal.held).toBe(true);
-    // A stale note-off for the recycled note must not release the new owner.
+    // The note-off for 36 still legitimately reaches its own crystal.
     field.noteOff(36);
-    expect(firstCrystal.held).toBe(true);
+    expect(firstCrystal.held).toBe(false);
   });
 
   it('clears all crystals and held-note tracking on reset', () => {

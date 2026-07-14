@@ -22,9 +22,12 @@ export const CRYSTAL_COLORS: { left: RgbColor; right: RgbColor } = {
   right: [255, 90, 20],
 };
 
-const POOL_SIZE = 12;
-const GROWTH_RATE = 6;
-const FALL_RATE = 4;
+/** Starting pool size — the pool grows past this on demand, so dense playing never steals a still-visible crystal. */
+const INITIAL_POOL_SIZE = 12;
+/** Px/frame for both growth (held) and fall (released) — one constant velocity
+ * so a crystal's leading edge reaches the floor a fixed time after note-on,
+ * no matter how long the note was held. */
+const TRAVEL_RATE = 4;
 /** Shaft width as a fraction of one white key's width — restores the original's chunky look. */
 const CRYSTAL_WIDTH_RATIO = 0.5;
 const CRYSTAL_ALPHA = 150;
@@ -32,7 +35,7 @@ const CRYSTAL_ALPHA = 150;
 const CRYSTAL_MIN_GAP = 6;
 
 function spawnPool(): Crystal[] {
-  return Array.from({ length: POOL_SIZE }, () => ({
+  return Array.from({ length: INITIAL_POOL_SIZE }, () => ({
     x: 0,
     y: 0,
     width: 0,
@@ -54,7 +57,6 @@ export class CrystalField {
   private readonly crystals: Crystal[] = spawnPool();
   /** Which pooled crystal is growing for each held note, keyed by MIDI note id. */
   private readonly noteCrystals = new Map<number, Crystal>();
-  private nextIndex = 0;
 
   /** The current pool, for a Scene that wants to inspect Crystals via `SceneContext`. */
   get all(): readonly Crystal[] {
@@ -92,12 +94,12 @@ export class CrystalField {
         // the shaft — but never down into an earlier crystal still falling below
         // it in the same column, so replays of a note never overlap.
         crystal.length = Math.min(
-          crystal.length + GROWTH_RATE,
+          crystal.length + TRAVEL_RATE,
           this.growthCeiling(crystal, visHeight),
         );
         continue;
       }
-      crystal.y += FALL_RATE;
+      crystal.y += TRAVEL_RATE;
       // Deactivate the moment the shaft's top reaches the band edge, so it is
       // gone before any part could render inside the Chroma Key band.
       if (crystal.y >= visHeight) crystal.active = false;
@@ -140,21 +142,23 @@ export class CrystalField {
       crystal.held = false;
     }
     this.noteCrystals.clear();
-    this.nextIndex = 0;
   }
 
-  /** Reuses a free pooled crystal, or recycles the oldest one round-robin when the pool is full. */
+  /** Reuses a free pooled crystal, or grows the pool with a new one — never steals a still-active crystal. */
   private acquire(): Crystal {
     const free = this.crystals.find((c) => !c.active);
     if (free) return free;
 
-    const crystal = this.crystals[this.nextIndex % this.crystals.length];
-    this.nextIndex += 1;
-    // The recycled crystal may still be tracked for a held note; drop that stale
-    // mapping so a later note-off can't reach into what is now a different note's crystal.
-    for (const [note, tracked] of this.noteCrystals) {
-      if (tracked === crystal) this.noteCrystals.delete(note);
-    }
+    const crystal: Crystal = {
+      x: 0,
+      y: 0,
+      width: 0,
+      length: 0,
+      active: false,
+      held: false,
+      color: CRYSTAL_COLORS.left,
+    };
+    this.crystals.push(crystal);
     return crystal;
   }
 }
