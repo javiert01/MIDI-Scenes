@@ -2,7 +2,7 @@ import p5 from 'p5';
 import type { P5Factory, P5Like } from './types';
 import type { ParamSpec, ParamValue, Scene, SceneContext } from './scene';
 import { SceneRegistry } from './SceneRegistry';
-import { CrystalField } from './crystals';
+import { CRYSTAL_COLORS, CrystalField, hexToRgb } from './crystals';
 import { drawPianoPreview } from './pianoPreview';
 import { parseNoteMessage } from './midi';
 import type { MidiAccessLike, MidiFactory } from './midiTypes';
@@ -28,6 +28,13 @@ function presetIdForDimensions(width: number, height: number): ResolutionPresetI
 const BACKGROUND_GRAY = 10;
 const CHROMA_KEY_GREEN: [number, number, number] = [0, 177, 64];
 
+function rgbToHex([r, g, b]: readonly [number, number, number]): string {
+  return `#${[r, g, b].map((c) => c.toString(16).padStart(2, '0')).join('')}`;
+}
+
+const DEFAULT_CRYSTAL_LEFT_COLOR = rgbToHex(CRYSTAL_COLORS.left);
+const DEFAULT_CRYSTAL_RIGHT_COLOR = rgbToHex(CRYSTAL_COLORS.right);
+
 /** Single versioned key holding the whole remembered setup (Scene, params, Device, etc). */
 export const STORAGE_KEY = 'midiviz.v1';
 
@@ -50,6 +57,10 @@ export interface PersistedStateV1 {
   crystalsVisible: boolean;
   /** 0-1, applied to Crystals on every Scene and No Scene alike. */
   crystalsOpacity: number;
+  /** `#RRGGBB` — Crystal color for notes on the left half of the keyboard. */
+  crystalsLeftColor: string;
+  /** `#RRGGBB` — Crystal color for notes on the right half of the keyboard. */
+  crystalsRightColor: string;
   pianoPreviewVisible: boolean;
 }
 
@@ -138,6 +149,8 @@ export class VisualizerEngine {
   private chromaKeyVisibleState = true;
   private crystalsVisibleState = true;
   private crystalsOpacityState = 1;
+  private crystalsLeftColorState = DEFAULT_CRYSTAL_LEFT_COLOR;
+  private crystalsRightColorState = DEFAULT_CRYSTAL_RIGHT_COLOR;
   private pianoPreviewVisibleState = false;
 
   // The engine owns the Crystal Overlay: a note-on spawns a Crystal regardless
@@ -280,6 +293,16 @@ export class VisualizerEngine {
     return this.crystalsOpacityState;
   }
 
+  /** `#RRGGBB` — Crystal color for notes on the left half of the keyboard. */
+  get crystalsLeftColor(): string {
+    return this.crystalsLeftColorState;
+  }
+
+  /** `#RRGGBB` — Crystal color for notes on the right half of the keyboard. */
+  get crystalsRightColor(): string {
+    return this.crystalsRightColorState;
+  }
+
   /** Whether the Piano Preview Overlay renders, covering the Chroma Key band. Default off. */
   get pianoPreviewVisible(): boolean {
     return this.pianoPreviewVisibleState;
@@ -365,6 +388,32 @@ export class VisualizerEngine {
     this.notify();
   }
 
+  /** Sets the Crystal color for notes on the left half of the keyboard, as `#RRGGBB`. */
+  setCrystalsLeftColor(hex: string): void {
+    if (hex === this.crystalsLeftColorState) return;
+    this.crystalsLeftColorState = hex;
+    this.applyCrystalColors();
+    this.persist();
+    this.notify();
+  }
+
+  /** Sets the Crystal color for notes on the right half of the keyboard, as `#RRGGBB`. */
+  setCrystalsRightColor(hex: string): void {
+    if (hex === this.crystalsRightColorState) return;
+    this.crystalsRightColorState = hex;
+    this.applyCrystalColors();
+    this.persist();
+    this.notify();
+  }
+
+  /** Pushes the current left/right hex colors into the CrystalField as parsed RGB. */
+  private applyCrystalColors(): void {
+    this.crystals.setColors(
+      hexToRgb(this.crystalsLeftColorState, CRYSTAL_COLORS.left),
+      hexToRgb(this.crystalsRightColorState, CRYSTAL_COLORS.right),
+    );
+  }
+
   /** Shows or hides the Piano Preview Overlay, which covers the Chroma Key band when on. */
   setPianoPreviewVisible(visible: boolean): void {
     if (visible === this.pianoPreviewVisibleState) return;
@@ -398,6 +447,8 @@ export class VisualizerEngine {
       chromaKeyVisible: this.chromaKeyVisibleState,
       crystalsVisible: this.crystalsVisibleState,
       crystalsOpacity: this.crystalsOpacityState,
+      crystalsLeftColor: this.crystalsLeftColorState,
+      crystalsRightColor: this.crystalsRightColorState,
       pianoPreviewVisible: this.pianoPreviewVisibleState,
     };
   }
@@ -441,6 +492,16 @@ export class VisualizerEngine {
     if (typeof state.crystalsOpacity === 'number' && !Number.isNaN(state.crystalsOpacity)) {
       this.crystalsOpacityState = Math.min(1, Math.max(0, state.crystalsOpacity));
     }
+
+    if (typeof state.crystalsLeftColor === 'string') {
+      this.crystalsLeftColorState = state.crystalsLeftColor;
+    }
+
+    if (typeof state.crystalsRightColor === 'string') {
+      this.crystalsRightColorState = state.crystalsRightColor;
+    }
+
+    this.applyCrystalColors();
 
     if (typeof state.pianoPreviewVisible === 'boolean') {
       this.pianoPreviewVisibleState = state.pianoPreviewVisible;
@@ -690,6 +751,9 @@ export class VisualizerEngine {
   /** Draws the Piano Preview Overlay filling the Chroma Key band, unless toggled off. */
   private renderPianoPreview(): void {
     if (!this.pianoPreviewVisibleState) return;
-    drawPianoPreview(this.p, this.width, this.visualizationHeight, this.chromaKeyHeight, this.heldNotes);
+    drawPianoPreview(this.p, this.width, this.visualizationHeight, this.chromaKeyHeight, this.heldNotes, {
+      left: hexToRgb(this.crystalsLeftColorState, CRYSTAL_COLORS.left),
+      right: hexToRgb(this.crystalsRightColorState, CRYSTAL_COLORS.right),
+    });
   }
 }

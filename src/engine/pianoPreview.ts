@@ -20,13 +20,14 @@ interface RenderContext {
   width: number;
   bandTop: number;
   heldNotes: ReadonlySet<number>;
+  colors: { left: RgbColor; right: RgbColor };
 }
 
 /**
  * Draws the Piano Preview Overlay: a full-band reactive keyboard standing in
  * for the piano-hands footage. Shares the Crystal columns' geometry so each
  * key sits directly below the column its Crystal falls in; a held key lights
- * up in that column's half-colour (purple left, orange right).
+ * up in that column's half-colour, matching the current Crystal colors.
  */
 export function drawPianoPreview(
   p: P5Like,
@@ -34,8 +35,9 @@ export function drawPianoPreview(
   bandTop: number,
   bandHeight: number,
   heldNotes: ReadonlySet<number>,
+  colors: { left: RgbColor; right: RgbColor } = CRYSTAL_COLORS,
 ): void {
-  const ctx: RenderContext = { p, width, bandTop, heldNotes };
+  const ctx: RenderContext = { p, width, bandTop, heldNotes, colors };
   const keys = keyboardKeys(width);
   const whiteWidth = whiteKeyWidth(width);
   const blackWidth = whiteWidth * BLACK_KEY_WIDTH_RATIO;
@@ -73,7 +75,7 @@ function drawKeyRect(
   restFill: RgbColor,
 ): void {
   const held = ctx.heldNotes.has(note);
-  const [r, g, b] = held ? (x < ctx.width / 2 ? CRYSTAL_COLORS.left : CRYSTAL_COLORS.right) : restFill;
+  const [r, g, b] = held ? (x < ctx.width / 2 ? ctx.colors.left : ctx.colors.right) : restFill;
   ctx.p.fill(r, g, b);
   ctx.p.rect(x, ctx.bandTop, keyWidth, keyHeight);
 }

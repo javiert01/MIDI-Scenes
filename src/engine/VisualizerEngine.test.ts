@@ -985,6 +985,8 @@ describe('VisualizerEngine session persistence (T11)', () => {
       chromaKeyVisible: false,
       crystalsVisible: true,
       crystalsOpacity: 1,
+      crystalsLeftColor: '#aa55ff',
+      crystalsRightColor: '#ff5a14',
       pianoPreviewVisible: false,
     });
   });

@@ -22,6 +22,13 @@ export const CRYSTAL_COLORS: { left: RgbColor; right: RgbColor } = {
   right: [255, 90, 20],
 };
 
+/** Parses a `#RRGGBB` hex color; malformed input falls back to `fallback`. */
+export function hexToRgb(hex: string, fallback: RgbColor): RgbColor {
+  const match = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
+  if (!match) return fallback;
+  return [parseInt(match[1], 16), parseInt(match[2], 16), parseInt(match[3], 16)];
+}
+
 /** Starting pool size — the pool grows past this on demand, so dense playing never steals a still-visible crystal. */
 const INITIAL_POOL_SIZE = 12;
 /** Px/frame for both growth (held) and fall (released) — one constant velocity
@@ -57,10 +64,19 @@ export class CrystalField {
   private readonly crystals: Crystal[] = spawnPool();
   /** Which pooled crystal is growing for each held note, keyed by MIDI note id. */
   private readonly noteCrystals = new Map<number, Crystal>();
+  /** User-customizable left/right colors — new noteOns pick from these; defaults to `CRYSTAL_COLORS`. */
+  private leftColor: RgbColor = CRYSTAL_COLORS.left;
+  private rightColor: RgbColor = CRYSTAL_COLORS.right;
 
   /** The current pool, for a Scene that wants to inspect Crystals via `SceneContext`. */
   get all(): readonly Crystal[] {
     return this.crystals;
+  }
+
+  /** Sets the colors newly spawned Crystals use; already-active Crystals keep their spawn-time color. */
+  setColors(left: RgbColor, right: RgbColor): void {
+    this.leftColor = left;
+    this.rightColor = right;
   }
 
   /** Spawns a growing crystal at `note`'s key column within a canvas of `width`. */
@@ -73,7 +89,7 @@ export class CrystalField {
     crystal.length = 0.5;
     crystal.active = true;
     crystal.held = true;
-    crystal.color = x < width / 2 ? CRYSTAL_COLORS.left : CRYSTAL_COLORS.right;
+    crystal.color = x < width / 2 ? this.leftColor : this.rightColor;
     this.noteCrystals.set(note, crystal);
   }
 

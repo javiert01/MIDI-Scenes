@@ -309,6 +309,14 @@ function CrystalsControl({ engine }: { engine: VisualizerEngine }) {
     (onChange) => engine.subscribe(onChange),
     () => engine.crystalsOpacity,
   );
+  const crystalsLeftColor = useSyncExternalStore(
+    (onChange) => engine.subscribe(onChange),
+    () => engine.crystalsLeftColor,
+  );
+  const crystalsRightColor = useSyncExternalStore(
+    (onChange) => engine.subscribe(onChange),
+    () => engine.crystalsRightColor,
+  );
 
   return (
     <AccordionSection title="Crystals">
@@ -329,6 +337,22 @@ function CrystalsControl({ engine }: { engine: VisualizerEngine }) {
           step={0.01}
           value={crystalsOpacity}
           onChange={(event) => engine.setCrystalsOpacity(event.target.valueAsNumber)}
+        />
+      </label>
+      <label className="param-control param-control-toggle">
+        <span className="param-control-label">Left color</span>
+        <input
+          type="color"
+          value={crystalsLeftColor}
+          onChange={(event) => engine.setCrystalsLeftColor(event.target.value)}
+        />
+      </label>
+      <label className="param-control param-control-toggle">
+        <span className="param-control-label">Right color</span>
+        <input
+          type="color"
+          value={crystalsRightColor}
+          onChange={(event) => engine.setCrystalsRightColor(event.target.value)}
         />
       </label>
     </AccordionSection>
