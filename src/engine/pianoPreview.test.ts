@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { drawPianoPreview } from '@/engine/pianoPreview';
+import { type PianoBand, drawPianoPreview, noteAtCanvasPoint } from '@/engine/pianoPreview';
 import { CRYSTAL_COLORS } from '@/engine/crystals';
 import { KEYBOARD_BASE_NOTE, keyColumnX, whiteKeyWidth } from '@/engine/keyboardGeometry';
 import type { P5Like } from '@/engine/types';
@@ -7,6 +7,7 @@ import type { P5Like } from '@/engine/types';
 const WIDTH = 900;
 const BAND_TOP = 600;
 const BAND_HEIGHT = 300;
+const BAND: PianoBand = { width: WIDTH, top: BAND_TOP, height: BAND_HEIGHT };
 
 interface RecordedCall {
   name: string;
@@ -33,7 +34,7 @@ describe('drawPianoPreview', () => {
   it('draws a rect for every white and black key across the board', () => {
     const p = new RecordingP5();
 
-    drawPianoPreview(p as unknown as P5Like, WIDTH, BAND_TOP, BAND_HEIGHT, new Set());
+    drawPianoPreview(p as unknown as P5Like, BAND, new Set());
 
     // 35 white keys + 25 black keys (5 per octave * 5 octaves).
     expect(rects(p)).toHaveLength(60);
@@ -42,7 +43,7 @@ describe('drawPianoPreview', () => {
   it("aligns each key's column with keyColumnX, so it sits below its Crystal", () => {
     const p = new RecordingP5();
 
-    drawPianoPreview(p as unknown as P5Like, WIDTH, BAND_TOP, BAND_HEIGHT, new Set());
+    drawPianoPreview(p as unknown as P5Like, BAND, new Set());
 
     const baseNoteRect = rects(p).find((c) => (c.args as number[])[0] === 0);
     expect(baseNoteRect).toBeTruthy();
@@ -52,7 +53,7 @@ describe('drawPianoPreview', () => {
   it('draws every key within the band, never above bandTop or below bandTop + bandHeight', () => {
     const p = new RecordingP5();
 
-    drawPianoPreview(p as unknown as P5Like, WIDTH, BAND_TOP, BAND_HEIGHT, new Set());
+    drawPianoPreview(p as unknown as P5Like, BAND, new Set());
 
     for (const call of rects(p)) {
       const [, y, , h] = call.args as number[];
@@ -67,7 +68,7 @@ describe('drawPianoPreview', () => {
     const rightNote = 36 + 40; // well past the halfway point of a 5-octave board
     expect(keyColumnX(rightNote, WIDTH)).toBeGreaterThan(WIDTH / 2);
 
-    drawPianoPreview(p as unknown as P5Like, WIDTH, BAND_TOP, BAND_HEIGHT, new Set([36, rightNote]));
+    drawPianoPreview(p as unknown as P5Like, BAND, new Set([36, rightNote]));
 
     const fills = p.calls.filter((c) => c.name === 'fill').map((c) => c.args as number[]);
     expect(fills.some((args) => args.slice(0, 3).join(',') === CRYSTAL_COLORS.left.join(','))).toBe(
@@ -81,7 +82,7 @@ describe('drawPianoPreview', () => {
   it('does not light up an unheld key', () => {
     const p = new RecordingP5();
 
-    drawPianoPreview(p as unknown as P5Like, WIDTH, BAND_TOP, BAND_HEIGHT, new Set());
+    drawPianoPreview(p as unknown as P5Like, BAND, new Set());
 
     const fills = p.calls.filter((c) => c.name === 'fill').map((c) => c.args as number[]);
     const usesCrystalColor = fills.some(
@@ -95,7 +96,7 @@ describe('drawPianoPreview', () => {
   it('labels white keys with a note letter, and skips labels for black keys', () => {
     const p = new RecordingP5();
 
-    drawPianoPreview(p as unknown as P5Like, WIDTH, BAND_TOP, BAND_HEIGHT, new Set());
+    drawPianoPreview(p as unknown as P5Like, BAND, new Set());
 
     const texts = p.calls.filter((c) => c.name === 'text').map((c) => c.args[0] as string);
     // 35 white keys are labelled; black keys never call text().
@@ -107,7 +108,7 @@ describe('drawPianoPreview', () => {
   it('sizes black keys narrower and shorter than white keys', () => {
     const p = new RecordingP5();
 
-    drawPianoPreview(p as unknown as P5Like, WIDTH, BAND_TOP, BAND_HEIGHT, new Set());
+    drawPianoPreview(p as unknown as P5Like, BAND, new Set());
 
     const whiteWidth = whiteKeyWidth(WIDTH);
     const allRects = rects(p).map((c) => c.args as number[]);
@@ -116,5 +117,35 @@ describe('drawPianoPreview', () => {
 
     expect(blackRect[2]).toBeLessThan(whiteRect[2]); // narrower
     expect(blackRect[3]).toBeLessThan(whiteRect[3]); // shorter
+  });
+});
+
+describe('noteAtCanvasPoint', () => {
+  const whiteWidth = whiteKeyWidth(WIDTH);
+
+  it('returns null for a point above the band or below it', () => {
+    expect(noteAtCanvasPoint(whiteWidth / 2, BAND_TOP - 1, BAND)).toBeNull();
+    expect(noteAtCanvasPoint(whiteWidth / 2, BAND_TOP + BAND_HEIGHT + 1, BAND)).toBeNull();
+  });
+
+  it('resolves a point over the leftmost white key to the base note (C2)', () => {
+    // Low in the band, past the black keys, so it lands on the white key.
+    const note = noteAtCanvasPoint(whiteWidth / 2, BAND_TOP + BAND_HEIGHT - 1, BAND);
+    expect(note).toBe(KEYBOARD_BASE_NOTE);
+  });
+
+  it('prefers the black key over the white beneath it near the top of the band', () => {
+    // C#2 sits at keyColumnX(37); a point over it high in the band is the black key.
+    const blackX = keyColumnX(KEYBOARD_BASE_NOTE + 1, WIDTH) + 2;
+    const note = noteAtCanvasPoint(blackX, BAND_TOP + 2, BAND);
+    expect(note).toBe(KEYBOARD_BASE_NOTE + 1);
+  });
+
+  it('falls through to the white key when the point is below the shorter black key', () => {
+    const blackX = keyColumnX(KEYBOARD_BASE_NOTE + 1, WIDTH) + 2;
+    // Same column, but low enough to be past the black key's shorter height.
+    const note = noteAtCanvasPoint(blackX, BAND_TOP + BAND_HEIGHT - 1, BAND);
+    expect(note).not.toBe(KEYBOARD_BASE_NOTE + 1);
+    expect(note).not.toBeNull();
   });
 });

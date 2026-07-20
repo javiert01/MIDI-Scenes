@@ -1,12 +1,28 @@
 import p5 from 'p5';
 import type { P5Factory, P5Like } from './types';
-import type { ParamSpec, ParamValue, Scene, SceneContext } from './scene';
+import type { NoteEvent, ParamSpec, ParamValue, Scene, SceneContext } from './scene';
 import { SceneRegistry } from './SceneRegistry';
 import { CRYSTAL_COLORS, CrystalField, hexToRgb } from './crystals';
-import { drawPianoPreview } from './pianoPreview';
-import { parseNoteMessage } from './midi';
+import { type PianoBand, drawPianoPreview, noteAtCanvasPoint } from './pianoPreview';
+import { noteNumberToName, parseNoteMessage } from './midi';
+import { clampOctaveShift, noteForKey, octaveLabel, octaveShiftForKey } from './virtualKeyboard';
 import type { MidiAccessLike, MidiFactory } from './midiTypes';
 import { defaultMidiFactory } from './webMidiAdapter';
+
+/** Fixed velocity (0–127) every synthetic Virtual Input note carries; see ADR-0005. */
+const VIRTUAL_INPUT_RAW_VELOCITY = 100;
+
+/** Whether a DOM node is a text-entry target, so Virtual Input keys don't fire while typing. */
+function isEditableTarget(target: EventTarget | null): boolean {
+  const el = target as { tagName?: string; isContentEditable?: boolean } | null;
+  if (!el || !el.tagName) return false;
+  return (
+    el.tagName === 'INPUT' ||
+    el.tagName === 'SELECT' ||
+    el.tagName === 'TEXTAREA' ||
+    el.isContentEditable === true
+  );
+}
 
 const CHROMA_KEY_RATIO = 1 / 3;
 
@@ -62,6 +78,8 @@ export interface PersistedStateV1 {
   /** `#RRGGBB` — Crystal color for notes on the right half of the keyboard. */
   crystalsRightColor: string;
   pianoPreviewVisible: boolean;
+  /** Whether the Virtual Input's surfaces are live. Octave shift is not persisted. */
+  virtualInputEnabled: boolean;
 }
 
 export const defaultP5Factory: P5Factory = (sketch, node) =>
@@ -153,6 +171,19 @@ export class VisualizerEngine {
   private crystalsRightColorState = DEFAULT_CRYSTAL_RIGHT_COLOR;
   private pianoPreviewVisibleState = false;
 
+  // The Virtual Input: synthetic notes from the computer keyboard and Piano
+  // Preview clicks, gated by one enable flag (see ADR-0005). Both surfaces feed
+  // the same dispatch core a real Device does.
+  private virtualInputEnabledState = false;
+  private virtualOctaveShift = 0;
+  // Physical key code -> the exact note it triggered, so keyup releases that same
+  // note even after an octave shift, and so cleanup releases only virtual notes.
+  private readonly virtualHeldKeys = new Map<string, number>();
+  // The note a held mouse press is currently sounding on the Piano Preview, if any.
+  private virtualMouseNote: number | null = null;
+  // Bound window listeners for the keyboard surface + stuck-note cleanup, removed on destroy.
+  private readonly windowListeners: Array<[string, EventListener]> = [];
+
   // The engine owns the Crystal Overlay: a note-on spawns a Crystal regardless
   // of the Active Scene, so Crystals react on every Scene and on No Scene.
   private readonly crystals = new CrystalField();
@@ -162,6 +193,11 @@ export class VisualizerEngine {
   // Notes currently down, independent of the Crystal pool, so the Piano
   // Preview's held-key lighting survives Crystal pool recycling.
   private readonly heldNotes = new Set<number>();
+  // How many sources are holding each note number (a Device and the Virtual
+  // Input can both press note 60 at once). Engine state and Scene callbacks fire
+  // only on the 0->1 and 1->0 transitions, so one source releasing a note never
+  // cuts it while another still holds it (see ADR-0005).
+  private readonly noteHolds = new Map<number, number>();
 
   private readonly storage?: Storage;
   private midiAccess: MidiAccessLike | null = null;
@@ -225,9 +261,33 @@ export class VisualizerEngine {
       p.draw = () => {
         this.renderFrame(p);
       };
+      // Piano Preview click surface of the Virtual Input: press starts a note,
+      // dragging glissandos across keys. p5 reports mouseX/Y in buffer coords.
+      p.mousePressed = () => this.handleCanvasPointer();
+      p.mouseDragged = () => this.handleCanvasPointer();
     }, container);
 
+    this.bindWindowListeners();
     void this.initMidi(options.createMidi ?? defaultMidiFactory);
+  }
+
+  /** Binds the Virtual Input's keyboard surface + stuck-note cleanup to window (guarded for tests/SSR). */
+  private bindWindowListeners(): void {
+    if (typeof window === 'undefined') return;
+    const onKeyDown = ((event: KeyboardEvent) => this.handleKeyDown(event)) as EventListener;
+    const onKeyUp = ((event: KeyboardEvent) => this.handleKeyUp(event)) as EventListener;
+    const onBlur = (() => this.releaseVirtualNotes()) as EventListener;
+    const onMouseUp = (() => this.setMouseNote(null)) as EventListener;
+    const bound: Array<[string, EventListener]> = [
+      ['keydown', onKeyDown],
+      ['keyup', onKeyUp],
+      ['blur', onBlur],
+      ['mouseup', onMouseUp],
+    ];
+    for (const [type, listener] of bound) {
+      window.addEventListener(type, listener);
+      this.windowListeners.push([type, listener]);
+    }
   }
 
   get width(): number {
@@ -306,6 +366,16 @@ export class VisualizerEngine {
   /** Whether the Piano Preview Overlay renders, covering the Chroma Key band. Default off. */
   get pianoPreviewVisible(): boolean {
     return this.pianoPreviewVisibleState;
+  }
+
+  /** Whether the Virtual Input's surfaces (computer keyboard + Piano Preview clicks) are live. Default off. */
+  get virtualInputEnabled(): boolean {
+    return this.virtualInputEnabledState;
+  }
+
+  /** The mapped computer-keyboard octave, e.g. "C4 – C5", for the sidebar indicator. */
+  get virtualInputOctaveLabel(): string {
+    return octaveLabel(this.virtualOctaveShift);
   }
 
   /** Bumped on every dispatched note-on/off; sidebar can diff it to flash an activity indicator. */
@@ -418,6 +488,21 @@ export class VisualizerEngine {
   setPianoPreviewVisible(visible: boolean): void {
     if (visible === this.pianoPreviewVisibleState) return;
     this.pianoPreviewVisibleState = visible;
+    // Hiding the preview removes the click surface; release any note a click is holding.
+    if (!visible) this.setMouseNote(null);
+    this.persist();
+    this.notify();
+  }
+
+  /**
+   * Enables or disables the Virtual Input. Disabling releases every note its
+   * surfaces are holding, so no synthetic note is left stuck. The mapped octave
+   * is deliberately not persisted — it resets on reload.
+   */
+  setVirtualInputEnabled(enabled: boolean): void {
+    if (enabled === this.virtualInputEnabledState) return;
+    this.virtualInputEnabledState = enabled;
+    if (!enabled) this.releaseVirtualNotes();
     this.persist();
     this.notify();
   }
@@ -450,6 +535,7 @@ export class VisualizerEngine {
       crystalsLeftColor: this.crystalsLeftColorState,
       crystalsRightColor: this.crystalsRightColorState,
       pianoPreviewVisible: this.pianoPreviewVisibleState,
+      virtualInputEnabled: this.virtualInputEnabledState,
     };
   }
 
@@ -507,6 +593,10 @@ export class VisualizerEngine {
       this.pianoPreviewVisibleState = state.pianoPreviewVisible;
     }
 
+    if (typeof state.virtualInputEnabled === 'boolean') {
+      this.virtualInputEnabledState = state.virtualInputEnabled;
+    }
+
     if (
       typeof state.resolutionPreset === 'string' &&
       state.resolutionPreset in RESOLUTION_PRESETS
@@ -545,6 +635,12 @@ export class VisualizerEngine {
     this.activeScene?.teardown();
     this.unwireActiveDevice();
     this.unsubscribeDeviceChange?.();
+    if (typeof window !== 'undefined') {
+      for (const [type, listener] of this.windowListeners) {
+        window.removeEventListener(type, listener);
+      }
+    }
+    this.windowListeners.length = 0;
     this.p.remove();
   }
 
@@ -672,19 +768,122 @@ export class VisualizerEngine {
   private handleRawMessage(data: number[]): void {
     const parsed = parseNoteMessage(data);
     if (!parsed) return;
+    if (parsed.type === 'noteon') this.dispatchNoteOn(parsed.event);
+    else this.dispatchNoteOff(parsed.event);
+  }
+
+  // The single note-dispatch core: real Device messages and the Virtual Input's
+  // synthetic notes both flow through here, so every downstream reaction
+  // (Crystals, held-key lighting, Scene callbacks, activity tick) is identical
+  // no matter which source a note came from.
+  private dispatchNoteOn(event: NoteEvent): void {
     const ctx = this.buildContext(this.p.millis() - this.sceneStartMillis, 0);
-    if (parsed.type === 'noteon') {
-      // Crystals react independently of the Active Scene (No Scene included).
-      this.crystals.noteOn(parsed.event.note, this.width);
-      this.heldNotes.add(parsed.event.note);
-      this.activeScene?.onNoteOn(parsed.event, ctx);
-    } else {
-      this.crystals.noteOff(parsed.event.note);
-      this.heldNotes.delete(parsed.event.note);
-      this.activeScene?.onNoteOff(parsed.event, ctx);
+    // The engine's Overlay state (Crystal + Piano Preview lighting) is keyed by
+    // note number, so only the first source to hold a note number drives it; a
+    // second source pressing the same note (e.g. Virtual Input over a held Device
+    // note) just adds a hold, and never respawns the Crystal. Scene callbacks and
+    // the activity tick stay per-event, source-independent.
+    const holds = (this.noteHolds.get(event.note) ?? 0) + 1;
+    this.noteHolds.set(event.note, holds);
+    if (holds === 1) {
+      this.crystals.noteOn(event.note, this.width);
+      this.heldNotes.add(event.note);
     }
+    this.activeScene?.onNoteOn(event, ctx);
     this.noteActivityTick += 1;
     this.notify();
+  }
+
+  private dispatchNoteOff(event: NoteEvent): void {
+    const ctx = this.buildContext(this.p.millis() - this.sceneStartMillis, 0);
+    // Mirror of dispatchNoteOn: only the last source releasing a note number cuts
+    // the engine's Overlay state, so one source releasing never darkens a note
+    // another still holds (see ADR-0005). An unmatched note-off (no tracked hold)
+    // still reaches the Scene and activity tick, as it did before refcounting.
+    const holds = this.noteHolds.get(event.note);
+    if (holds !== undefined) {
+      if (holds > 1) {
+        this.noteHolds.set(event.note, holds - 1);
+      } else {
+        this.noteHolds.delete(event.note);
+        this.crystals.noteOff(event.note);
+        this.heldNotes.delete(event.note);
+      }
+    }
+    this.activeScene?.onNoteOff(event, ctx);
+    this.noteActivityTick += 1;
+    this.notify();
+  }
+
+  /** Builds a synthetic NoteEvent for the Virtual Input, matching a parsed Device event's shape. */
+  private makeNoteEvent(note: number, raw: number): NoteEvent {
+    return { note, name: noteNumberToName(note), velocity: raw / 127, raw, channel: 1 };
+  }
+
+  private handleKeyDown(event: KeyboardEvent): void {
+    if (!this.virtualInputEnabledState) return;
+    // OS key-repeat re-fires keydown; ignore it, and never fire while typing.
+    if (event.repeat || isEditableTarget(event.target)) return;
+
+    const shift = octaveShiftForKey(event.code);
+    if (shift !== null) {
+      const next = clampOctaveShift(this.virtualOctaveShift + shift);
+      if (next !== this.virtualOctaveShift) {
+        this.virtualOctaveShift = next;
+        this.notify();
+      }
+      event.preventDefault();
+      return;
+    }
+
+    if (this.virtualHeldKeys.has(event.code)) return;
+    const note = noteForKey(event.code, this.virtualOctaveShift);
+    if (note === null) return;
+    this.virtualHeldKeys.set(event.code, note);
+    this.dispatchNoteOn(this.makeNoteEvent(note, VIRTUAL_INPUT_RAW_VELOCITY));
+    event.preventDefault();
+  }
+
+  // Runs regardless of the enable flag so a key released after toggling off (or
+  // after any earlier press) still clears its tracked note.
+  private handleKeyUp(event: KeyboardEvent): void {
+    const note = this.virtualHeldKeys.get(event.code);
+    if (note === undefined) return;
+    this.virtualHeldKeys.delete(event.code);
+    this.dispatchNoteOff(this.makeNoteEvent(note, 0));
+  }
+
+  /** Resolves the note under the cursor on the Piano Preview, gated by the enable flag + preview visibility. */
+  private handleCanvasPointer(): void {
+    if (!this.virtualInputEnabledState || !this.pianoPreviewVisibleState) {
+      this.setMouseNote(null);
+      return;
+    }
+    this.setMouseNote(noteAtCanvasPoint(this.p.mouseX, this.p.mouseY, this.pianoBand));
+  }
+
+  /** The Piano Preview's band rectangle, from the current canvas dimensions. */
+  private get pianoBand(): PianoBand {
+    return { width: this.width, top: this.visualizationHeight, height: this.chromaKeyHeight };
+  }
+
+  /** Moves the mouse-held note to `note` (or none), releasing the old note and pressing the new — the glissando seam. */
+  private setMouseNote(note: number | null): void {
+    if (note === this.virtualMouseNote) return;
+    if (this.virtualMouseNote !== null) {
+      this.dispatchNoteOff(this.makeNoteEvent(this.virtualMouseNote, 0));
+    }
+    this.virtualMouseNote = note;
+    if (note !== null) this.dispatchNoteOn(this.makeNoteEvent(note, VIRTUAL_INPUT_RAW_VELOCITY));
+  }
+
+  /** Releases every Virtual-Input-originated note (keyboard + mouse), leaving Device notes untouched. */
+  private releaseVirtualNotes(): void {
+    for (const note of this.virtualHeldKeys.values()) {
+      this.dispatchNoteOff(this.makeNoteEvent(note, 0));
+    }
+    this.virtualHeldKeys.clear();
+    this.setMouseNote(null);
   }
 
   private buildContext(elapsed: number, deltaTime: number): SceneContext {
@@ -751,7 +950,7 @@ export class VisualizerEngine {
   /** Draws the Piano Preview Overlay filling the Chroma Key band, unless toggled off. */
   private renderPianoPreview(): void {
     if (!this.pianoPreviewVisibleState) return;
-    drawPianoPreview(this.p, this.width, this.visualizationHeight, this.chromaKeyHeight, this.heldNotes, {
+    drawPianoPreview(this.p, this.pianoBand, this.heldNotes, {
       left: hexToRgb(this.crystalsLeftColorState, CRYSTAL_COLORS.left),
       right: hexToRgb(this.crystalsRightColorState, CRYSTAL_COLORS.right),
     });

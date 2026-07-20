@@ -17,6 +17,9 @@ const BLACK_KEY_Y_RATIO = 0.09375;
 /** How many octaves the 35 white keys span (35 / 7). */
 const KEYBOARD_OCTAVES = KEYBOARD_TOTAL_WHITE_KEYS / WHITE_KEYS_PER_OCTAVE;
 
+/** The highest note the keyboard models: B6, the last semitone of the 5-octave board. */
+export const KEYBOARD_TOP_NOTE = KEYBOARD_BASE_NOTE + KEYBOARD_OCTAVES * 12 - 1;
+
 interface KeyLayoutEntry {
   isWhite: boolean;
   whiteIndex: number;

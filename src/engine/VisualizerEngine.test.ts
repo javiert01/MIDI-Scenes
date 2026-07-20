@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NO_SCENE_ID, STORAGE_KEY, VisualizerEngine } from '@/engine/VisualizerEngine';
 import { CRYSTAL_COLORS } from '@/engine/crystals';
 import type { P5Factory, P5Like } from '@/engine/types';
@@ -15,6 +15,10 @@ class StubP5 implements P5Like {
   height = 0;
   setup?: () => void;
   draw?: () => void;
+  mouseX = 0;
+  mouseY = 0;
+  mousePressed?: () => void;
+  mouseDragged?: () => void;
   calls: RecordedCall[] = [];
   private clock = 0;
 
@@ -988,6 +992,7 @@ describe('VisualizerEngine session persistence (T11)', () => {
       crystalsLeftColor: '#aa55ff',
       crystalsRightColor: '#ff5a14',
       pianoPreviewVisible: false,
+      virtualInputEnabled: false,
     });
   });
 
@@ -1485,7 +1490,9 @@ describe('VisualizerEngine Piano Preview Overlay (T18)', () => {
   // The Piano Preview labels every white key; nothing else calls text(), so
   // its presence/count is a reliable signal the keyboard was drawn.
   function labelTexts(stub: StubP5): string[] {
-    return stub.calls.filter((c) => c.name === 'text').map((c) => (c.args as unknown[])[0] as string);
+    return stub.calls
+      .filter((c) => c.name === 'text')
+      .map((c) => (c.args as unknown[])[0] as string);
   }
 
   // Crystal-colour fills are exactly 3 args (r, g, b); Crystal's own fill call
@@ -1774,5 +1781,272 @@ describe('VisualizerEngine No Scene (T16)', () => {
 
     expect(engine.activeSceneId).toBe('a');
     expect(sceneA.setup).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('VisualizerEngine Virtual Input (T19)', () => {
+  const MIDDLE_C = 60; // A key at the default octave = Middle C.
+
+  // Each engine binds window keyboard/cleanup listeners; destroy() removes them so
+  // a dispatched key in one test never reaches an enabled engine from another.
+  let engines: VisualizerEngine[] = [];
+
+  function setUpEngine(scenes: Scene[] = []) {
+    const { factory, getInstance } = stubP5Factory();
+    const container = document.createElement('div');
+    const engine = new VisualizerEngine(container, {
+      createP5: factory,
+      storage: new FakeStorage(),
+      scenes,
+    });
+    engines.push(engine);
+    return { engine, stub: getInstance() };
+  }
+
+  function keydown(code: string, opts: { repeat?: boolean; target?: EventTarget } = {}) {
+    const event = new KeyboardEvent('keydown', {
+      code,
+      bubbles: true,
+      cancelable: true,
+      repeat: opts.repeat ?? false,
+    });
+    (opts.target ?? window).dispatchEvent(event);
+  }
+
+  function keyup(code: string, target: EventTarget = window) {
+    target.dispatchEvent(new KeyboardEvent('keyup', { code, bubbles: true }));
+  }
+
+  afterEach(() => {
+    for (const engine of engines) engine.destroy();
+    engines = [];
+  });
+
+  it('defaults to disabled', () => {
+    const { engine } = setUpEngine();
+    expect(engine.virtualInputEnabled).toBe(false);
+  });
+
+  it('a mapped computer key dispatches a note-on to the Active Scene when enabled', () => {
+    const scene = new FakeScene('a', 'Scene A');
+    const { engine } = setUpEngine([scene]);
+    engine.setVirtualInputEnabled(true);
+
+    keydown('KeyA');
+
+    expect(scene.onNoteOn).toHaveBeenCalledTimes(1);
+    const [event] = scene.onNoteOn.mock.calls[0] as [NoteEvent, SceneContext];
+    expect(event).toEqual({
+      note: MIDDLE_C,
+      name: 'C4',
+      velocity: 100 / 127,
+      raw: 100,
+      channel: 1,
+    });
+  });
+
+  it('does nothing while disabled', () => {
+    const scene = new FakeScene('a', 'Scene A');
+    setUpEngine([scene]);
+
+    keydown('KeyA');
+
+    expect(scene.onNoteOn).not.toHaveBeenCalled();
+  });
+
+  it('releases the same note on keyup, even after an octave shift between press and release', () => {
+    const scene = new FakeScene('a', 'Scene A');
+    const { engine } = setUpEngine([scene]);
+    engine.setVirtualInputEnabled(true);
+
+    keydown('KeyA'); // Middle C
+    keydown('KeyX'); // octave up — must not change which note releases
+    keyup('KeyA');
+
+    const [event] = scene.onNoteOff.mock.calls[0] as [NoteEvent, SceneContext];
+    expect(event.note).toBe(MIDDLE_C);
+  });
+
+  it('shifts the mapped octave with Z/X and reports it via the octave label', () => {
+    const scene = new FakeScene('a', 'Scene A');
+    const { engine } = setUpEngine([scene]);
+    engine.setVirtualInputEnabled(true);
+    expect(engine.virtualInputOctaveLabel).toBe('C4 – C5');
+
+    keydown('KeyX'); // up one octave
+    expect(engine.virtualInputOctaveLabel).toBe('C5 – C6');
+    keydown('KeyA');
+
+    const [event] = scene.onNoteOn.mock.calls[0] as [NoteEvent, SceneContext];
+    expect(event.note).toBe(MIDDLE_C + 12);
+  });
+
+  it('ignores OS key-repeat, firing a note only once per physical press', () => {
+    const scene = new FakeScene('a', 'Scene A');
+    const { engine } = setUpEngine([scene]);
+    engine.setVirtualInputEnabled(true);
+
+    keydown('KeyA');
+    keydown('KeyA', { repeat: true });
+
+    expect(scene.onNoteOn).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores keys while a text input is focused', () => {
+    const scene = new FakeScene('a', 'Scene A');
+    const { engine } = setUpEngine([scene]);
+    engine.setVirtualInputEnabled(true);
+    const input = document.createElement('input');
+    document.body.appendChild(input);
+
+    keydown('KeyA', { target: input });
+
+    expect(scene.onNoteOn).not.toHaveBeenCalled();
+    input.remove();
+  });
+
+  it('releases held notes on window blur', () => {
+    const scene = new FakeScene('a', 'Scene A');
+    const { engine } = setUpEngine([scene]);
+    engine.setVirtualInputEnabled(true);
+    keydown('KeyA');
+
+    window.dispatchEvent(new Event('blur'));
+
+    expect(scene.onNoteOff).toHaveBeenCalledTimes(1);
+    expect((scene.onNoteOff.mock.calls[0][0] as NoteEvent).note).toBe(MIDDLE_C);
+  });
+
+  it('releases held notes when the Virtual Input is disabled mid-hold', () => {
+    const scene = new FakeScene('a', 'Scene A');
+    const { engine } = setUpEngine([scene]);
+    engine.setVirtualInputEnabled(true);
+    keydown('KeyA');
+
+    engine.setVirtualInputEnabled(false);
+
+    expect(scene.onNoteOff).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not cut a Device note's Crystal when the Virtual Input releases the same note", async () => {
+    const device: MidiInputLike = { id: 'dev-a', name: 'Keyboard A' };
+    const scene = new FakeScene('a', 'Scene A');
+    const { factory, getInstance } = stubP5Factory();
+    const container = document.createElement('div');
+    const midi = new FakeMidiAccess([device]);
+    const engine = new VisualizerEngine(container, {
+      createP5: factory,
+      createMidi: fakeMidiFactory(midi),
+      storage: new FakeStorage(),
+      scenes: [scene],
+    });
+    engines.push(engine);
+    await flushMicrotasks();
+    const stub = getInstance();
+    engine.setVirtualInputEnabled(true);
+
+    // A Device and the Virtual Input both hold Middle C at once.
+    midi.emit('dev-a', [0x90, MIDDLE_C, 100]);
+    keydown('KeyA'); // KeyA maps to Middle C at the default octave
+
+    // The shared note spawns exactly one Crystal, keyed by note number.
+    const activeCrystals = () => {
+      stub.draw?.();
+      const ctx = scene.draw.mock.calls.at(-1)![0] as SceneContext;
+      return ctx.crystals.filter((c) => c.active);
+    };
+    expect(activeCrystals()).toHaveLength(1);
+
+    keyup('KeyA'); // release only the Virtual Input's hold
+    expect(activeCrystals()[0]?.held).toBe(true); // Device still holds it — not cut
+
+    midi.emit('dev-a', [0x80, MIDDLE_C, 0]); // Device finally releases
+    expect(activeCrystals()[0]?.held).toBe(false); // now it falls
+  });
+
+  it('plays a note when a Piano Preview key is clicked, and releases it on mouseup', () => {
+    const scene = new FakeScene('a', 'Scene A');
+    const { engine, stub } = setUpEngine([scene]);
+    engine.setVirtualInputEnabled(true);
+    engine.setPianoPreviewVisible(true);
+
+    // A point in the band's lower area over the leftmost white key (C2, note 36).
+    stub.mouseX = 5;
+    stub.mouseY = engine.visualizationHeight + engine.chromaKeyHeight - 5;
+    stub.mousePressed?.();
+
+    expect(scene.onNoteOn).toHaveBeenCalledTimes(1);
+    expect((scene.onNoteOn.mock.calls[0][0] as NoteEvent).note).toBe(36);
+
+    window.dispatchEvent(new MouseEvent('mouseup'));
+    expect(scene.onNoteOff).toHaveBeenCalledTimes(1);
+    expect((scene.onNoteOff.mock.calls[0][0] as NoteEvent).note).toBe(36);
+  });
+
+  it('does not play a click when the Piano Preview is hidden', () => {
+    const scene = new FakeScene('a', 'Scene A');
+    const { engine, stub } = setUpEngine([scene]);
+    engine.setVirtualInputEnabled(true); // preview stays hidden
+
+    stub.mouseX = 5;
+    stub.mouseY = engine.visualizationHeight + engine.chromaKeyHeight - 5;
+    stub.mousePressed?.();
+
+    expect(scene.onNoteOn).not.toHaveBeenCalled();
+  });
+
+  it('glissandos across keys on drag, releasing the old note and pressing the new', () => {
+    const scene = new FakeScene('a', 'Scene A');
+    const { engine, stub } = setUpEngine([scene]);
+    engine.setVirtualInputEnabled(true);
+    engine.setPianoPreviewVisible(true);
+    const bandY = engine.visualizationHeight + engine.chromaKeyHeight - 5;
+
+    stub.mouseX = 5;
+    stub.mouseY = bandY;
+    stub.mousePressed?.();
+    const firstNote = (scene.onNoteOn.mock.calls[0][0] as NoteEvent).note;
+
+    // Drag two white keys to the right, onto a different note.
+    stub.mouseX = 5 + Math.floor((2 * engine.width) / 35);
+    stub.mouseDragged?.();
+
+    const secondNote = (scene.onNoteOn.mock.calls.at(-1)![0] as NoteEvent).note;
+    expect(secondNote).not.toBe(firstNote);
+    expect((scene.onNoteOff.mock.calls[0][0] as NoteEvent).note).toBe(firstNote);
+  });
+
+  it('persists virtualInputEnabled across serialize()/restore()', () => {
+    const { engine: source } = setUpEngine();
+    source.setVirtualInputEnabled(true);
+    const snapshot = source.serialize();
+    expect(snapshot.virtualInputEnabled).toBe(true);
+
+    const { engine: target } = setUpEngine();
+    target.restore(snapshot);
+
+    expect(target.virtualInputEnabled).toBe(true);
+  });
+
+  it('falls back to disabled when older persisted state lacks the field', () => {
+    const { factory } = stubP5Factory();
+    const container = document.createElement('div');
+    const storage = new FakeStorage();
+    storage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        version: 1,
+        activeSceneId: null,
+        paramValues: {},
+        deviceName: null,
+        resolutionPreset: '1600x800',
+        chromaKeyVisible: true,
+      }),
+    );
+
+    const engine = new VisualizerEngine(container, { createP5: factory, storage });
+    engines.push(engine);
+
+    expect(engine.virtualInputEnabled).toBe(false);
   });
 });

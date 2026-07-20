@@ -4,6 +4,12 @@ export interface P5Like {
   height: number;
   setup?: () => void;
   draw?: () => void;
+  /** Cursor position in sketch/buffer coordinates (p5 already un-scales CSS sizing). */
+  mouseX: number;
+  mouseY: number;
+  /** Assignable pointer callbacks p5 invokes; the engine wires the Virtual Input's click surface. */
+  mousePressed?: () => void;
+  mouseDragged?: () => void;
   createCanvas(w: number, h: number): void;
   resizeCanvas(w: number, h: number): void;
   noStroke(): void;

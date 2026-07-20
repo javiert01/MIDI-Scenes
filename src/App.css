@@ -156,6 +156,36 @@
   margin: 0;
 }
 
+.virtual-input-legend {
+  margin-top: 0.75rem;
+  font-size: 0.8rem;
+  color: #9aa0aa;
+}
+
+.virtual-input-legend p {
+  margin: 0 0 0.35rem;
+}
+
+.virtual-input-keys {
+  display: inline-block;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #d6d9df;
+  letter-spacing: 0.05em;
+}
+
+.virtual-input-octave {
+  margin-top: 0.6rem;
+}
+
+.virtual-input-octave strong {
+  color: #d6d9df;
+}
+
+.virtual-input-hint {
+  margin-top: 0.6rem;
+  font-style: italic;
+}
+
 .midi-activity {
   display: flex;
   align-items: center;

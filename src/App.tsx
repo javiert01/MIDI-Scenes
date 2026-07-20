@@ -43,6 +43,7 @@ function App() {
           <ChromaKeyToggle engine={engine} />
           <CrystalsControl engine={engine} />
           <PianoPreviewToggle engine={engine} />
+          <VirtualInputControl engine={engine} />
           <ResolutionPicker engine={engine} />
           <DevicePicker engine={engine} />
         </aside>
@@ -372,6 +373,42 @@ function PianoPreviewToggle({ engine }: { engine: VisualizerEngine }) {
         checked={pianoPreviewVisible}
         onChange={(checked) => engine.setPianoPreviewVisible(checked)}
       />
+    </AccordionSection>
+  );
+}
+
+function VirtualInputControl({ engine }: { engine: VisualizerEngine }) {
+  const virtualInputEnabled = useSyncExternalStore(
+    (onChange) => engine.subscribe(onChange),
+    () => engine.virtualInputEnabled,
+  );
+  const octaveLabel = useSyncExternalStore(
+    (onChange) => engine.subscribe(onChange),
+    () => engine.virtualInputOctaveLabel,
+  );
+
+  return (
+    <AccordionSection title="Virtual Input">
+      <ToggleField
+        label="Play without a device"
+        checked={virtualInputEnabled}
+        onChange={(checked) => engine.setVirtualInputEnabled(checked)}
+      />
+      <div className="virtual-input-legend">
+        <p>
+          <span className="virtual-input-keys">A S D F G H J K</span> — white keys
+        </p>
+        <p>
+          <span className="virtual-input-keys">W E T Y U</span> — black keys
+        </p>
+        <p>
+          <span className="virtual-input-keys">Z / X</span> — octave down / up
+        </p>
+        <p className="virtual-input-octave">
+          Octave: <strong>{octaveLabel}</strong>
+        </p>
+        <p className="virtual-input-hint">Or click keys on the Piano Preview.</p>
+      </div>
     </AccordionSection>
   );
 }

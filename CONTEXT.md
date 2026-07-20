@@ -61,6 +61,18 @@ A connected MIDI input (a keyboard/controller), enumerated and hot-plug-tracked 
 the user can pick one from the sidebar.
 _Avoid_: Controller (ambiguous with UI/code controllers), input, instrument.
 
+**Virtual Input**:
+A coexisting source of synthetic note events, letting the user play notes without a
+physical MIDI Device — for testing Scenes and Crystals. Two surfaces feed it: the
+computer keyboard (keys mapped to notes) and clicking keys on the Piano Preview.
+Unlike a Device it is not enumerated or hot-plug-tracked and never appears in the
+Device list; it is always present, gated by a single enable toggle (default off).
+Its note events flow into the same routing a Device's do, so Scenes, Crystals, and
+the Piano Preview react identically no matter which source a note came from.
+_Avoid_: Device (a Virtual Input is never listed or selected), Virtual Device,
+Piano (the Piano Preview is a surface the Virtual Input is played *through*, not an
+instrument).
+
 **Chroma Key area**:
 The green-filled bottom third of the canvas, kept for compositing piano-hands
 footage under the visualization in a video editor. An Overlay. The Piano Preview,
