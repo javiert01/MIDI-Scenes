@@ -62,6 +62,24 @@ export const STORAGE_KEY = 'midiviz.v1';
 export const NO_SCENE_ID = 'none';
 const NO_SCENE_LABEL = 'No Scene';
 
+/**
+ * Which single Overlay fills the shared keyboard band at the canvas bottom.
+ * Piano Preview and the Chroma Key green occupy the same band, so at most one
+ * shows: `'piano'` (the Piano Preview), `'chroma'` (the green fill), or `'none'`.
+ */
+export type KeyboardBand = 'none' | 'piano' | 'chroma';
+
+const KEYBOARD_BANDS: readonly KeyboardBand[] = ['none', 'piano', 'chroma'];
+
+/** The band a fresh load starts on: the Piano Preview stands in for the piano-hands footage. */
+const DEFAULT_KEYBOARD_BAND: KeyboardBand = 'piano';
+
+/** Legacy persisted fields (pre–keyboard-band) still read on load to migrate old snapshots. */
+interface LegacyBandFields {
+  chromaKeyVisible?: unknown;
+  pianoPreviewVisible?: unknown;
+}
+
 /** Shape written to/read from `STORAGE_KEY`. Device is remembered by name, not id. */
 export interface PersistedStateV1 {
   version: 1;
@@ -69,7 +87,8 @@ export interface PersistedStateV1 {
   paramValues: Record<string, Record<string, ParamValue>>;
   deviceName: string | null;
   resolutionPreset: ResolutionPresetId;
-  chromaKeyVisible: boolean;
+  /** Which Overlay fills the shared keyboard band. Supersedes the old chroma/piano booleans. */
+  keyboardBand: KeyboardBand;
   crystalsVisible: boolean;
   /** 0-1, applied to Crystals on every Scene and No Scene alike. */
   crystalsOpacity: number;
@@ -77,9 +96,25 @@ export interface PersistedStateV1 {
   crystalsLeftColor: string;
   /** `#RRGGBB` — Crystal color for notes on the right half of the keyboard. */
   crystalsRightColor: string;
-  pianoPreviewVisible: boolean;
   /** Whether the Virtual Input's surfaces are live. Octave shift is not persisted. */
   virtualInputEnabled: boolean;
+}
+
+/**
+ * Resolves the keyboard band from a persisted snapshot. A modern snapshot carries
+ * `keyboardBand` directly; a legacy one carries the old independent `chromaKeyVisible`
+ * / `pianoPreviewVisible` booleans (each defaulting to on, as they did then), which
+ * migrate here — a "both on" legacy state resolves to Piano Preview (it wins the band).
+ */
+function resolveKeyboardBand(state: Partial<PersistedStateV1> & LegacyBandFields): KeyboardBand {
+  if (typeof state.keyboardBand === 'string' && KEYBOARD_BANDS.includes(state.keyboardBand)) {
+    return state.keyboardBand;
+  }
+  const piano = typeof state.pianoPreviewVisible === 'boolean' ? state.pianoPreviewVisible : true;
+  const chroma = typeof state.chromaKeyVisible === 'boolean' ? state.chromaKeyVisible : true;
+  if (piano) return 'piano';
+  if (chroma) return 'chroma';
+  return 'none';
 }
 
 export const defaultP5Factory: P5Factory = (sketch, node) =>
@@ -164,12 +199,14 @@ export class VisualizerEngine {
   private activeScene: Scene | null = null;
   private sceneStartMillis = 0;
   private lastFrameMillis = 0;
-  private chromaKeyVisibleState = true;
+  // The single Overlay filling the shared keyboard band. Piano Preview and the
+  // Chroma Key green occupy the same band, so they are one mutually-exclusive
+  // choice rather than two independent booleans (see issue #22).
+  private keyboardBandState: KeyboardBand = DEFAULT_KEYBOARD_BAND;
   private crystalsVisibleState = true;
   private crystalsOpacityState = 1;
   private crystalsLeftColorState = DEFAULT_CRYSTAL_LEFT_COLOR;
   private crystalsRightColorState = DEFAULT_CRYSTAL_RIGHT_COLOR;
-  private pianoPreviewVisibleState = true;
 
   // The Virtual Input: synthetic notes from the computer keyboard and Piano
   // Preview clicks, gated by one enable flag (see ADR-0005). Both surfaces feed
@@ -338,9 +375,14 @@ export class VisualizerEngine {
     return this.selectedDeviceId;
   }
 
-  /** Whether the Chroma Key area is painted green. Toggling never recreates the canvas. */
+  /** Which Overlay fills the shared keyboard band: `'none'`, `'piano'`, or `'chroma'`. */
+  get keyboardBand(): KeyboardBand {
+    return this.keyboardBandState;
+  }
+
+  /** Whether the Chroma Key green fills the keyboard band. Derived from `keyboardBand`. */
   get chromaKeyVisible(): boolean {
-    return this.chromaKeyVisibleState;
+    return this.keyboardBandState === 'chroma';
   }
 
   /** Whether the Crystal Overlay renders, on every Scene and on No Scene alike. */
@@ -363,9 +405,9 @@ export class VisualizerEngine {
     return this.crystalsRightColorState;
   }
 
-  /** Whether the Piano Preview Overlay renders, covering the Chroma Key band. Default off. */
+  /** Whether the Piano Preview fills the keyboard band. Derived from `keyboardBand`. */
   get pianoPreviewVisible(): boolean {
-    return this.pianoPreviewVisibleState;
+    return this.keyboardBandState === 'piano';
   }
 
   /** Whether the Virtual Input's surfaces (computer keyboard + Piano Preview clicks) are live. Default off. */
@@ -433,10 +475,16 @@ export class VisualizerEngine {
     this.persist();
   }
 
-  /** Shows or hides the Chroma Key area at engine level, affecting all Scenes uniformly. */
-  setChromaKeyVisible(visible: boolean): void {
-    if (visible === this.chromaKeyVisibleState) return;
-    this.chromaKeyVisibleState = visible;
+  /**
+   * Selects the single Overlay filling the shared keyboard band. Because Piano
+   * Preview and the Chroma Key green share that band, choosing one clears the
+   * other; `'none'` clears both. Leaving `'piano'` removes the click surface, so
+   * any note a Piano Preview click is holding is released.
+   */
+  setKeyboardBand(band: KeyboardBand): void {
+    if (band === this.keyboardBandState) return;
+    if (this.keyboardBandState === 'piano') this.setMouseNote(null);
+    this.keyboardBandState = band;
     this.persist();
     this.notify();
   }
@@ -484,16 +532,6 @@ export class VisualizerEngine {
     );
   }
 
-  /** Shows or hides the Piano Preview Overlay, which covers the Chroma Key band when on. */
-  setPianoPreviewVisible(visible: boolean): void {
-    if (visible === this.pianoPreviewVisibleState) return;
-    this.pianoPreviewVisibleState = visible;
-    // Hiding the preview removes the click surface; release any note a click is holding.
-    if (!visible) this.setMouseNote(null);
-    this.persist();
-    this.notify();
-  }
-
   /**
    * Enables or disables the Virtual Input. Disabling releases every note its
    * surfaces are holding, so no synthetic note is left stuck. The mapped octave
@@ -529,12 +567,11 @@ export class VisualizerEngine {
       paramValues,
       deviceName: this.rememberedDeviceName,
       resolutionPreset: this.resolutionPresetState,
-      chromaKeyVisible: this.chromaKeyVisibleState,
+      keyboardBand: this.keyboardBandState,
       crystalsVisible: this.crystalsVisibleState,
       crystalsOpacity: this.crystalsOpacityState,
       crystalsLeftColor: this.crystalsLeftColorState,
       crystalsRightColor: this.crystalsRightColorState,
-      pianoPreviewVisible: this.pianoPreviewVisibleState,
       virtualInputEnabled: this.virtualInputEnabledState,
     };
   }
@@ -567,9 +604,7 @@ export class VisualizerEngine {
       }
     }
 
-    if (typeof state.chromaKeyVisible === 'boolean') {
-      this.chromaKeyVisibleState = state.chromaKeyVisible;
-    }
+    this.keyboardBandState = resolveKeyboardBand(state);
 
     if (typeof state.crystalsVisible === 'boolean') {
       this.crystalsVisibleState = state.crystalsVisible;
@@ -588,10 +623,6 @@ export class VisualizerEngine {
     }
 
     this.applyCrystalColors();
-
-    if (typeof state.pianoPreviewVisible === 'boolean') {
-      this.pianoPreviewVisibleState = state.pianoPreviewVisible;
-    }
 
     if (typeof state.virtualInputEnabled === 'boolean') {
       this.virtualInputEnabledState = state.virtualInputEnabled;
@@ -855,7 +886,7 @@ export class VisualizerEngine {
 
   /** Resolves the note under the cursor on the Piano Preview, gated by the enable flag + preview visibility. */
   private handleCanvasPointer(): void {
-    if (!this.virtualInputEnabledState || !this.pianoPreviewVisibleState) {
+    if (!this.virtualInputEnabledState || this.keyboardBandState !== 'piano') {
       this.setMouseNote(null);
       return;
     }
@@ -915,7 +946,7 @@ export class VisualizerEngine {
 
   private renderFrame(p: P5Like): void {
     p.background(BACKGROUND_GRAY);
-    if (this.chromaKeyVisibleState) {
+    if (this.keyboardBandState === 'chroma') {
       p.noStroke();
       p.fill(...CHROMA_KEY_GREEN);
       p.rect(0, this.visualizationHeight, this.width, this.chromaKeyHeight);
@@ -947,9 +978,9 @@ export class VisualizerEngine {
     this.renderPianoPreview();
   }
 
-  /** Draws the Piano Preview Overlay filling the Chroma Key band, unless toggled off. */
+  /** Draws the Piano Preview Overlay filling the keyboard band, unless another band is selected. */
   private renderPianoPreview(): void {
-    if (!this.pianoPreviewVisibleState) return;
+    if (this.keyboardBandState !== 'piano') return;
     drawPianoPreview(this.p, this.pianoBand, this.heldNotes, {
       left: hexToRgb(this.crystalsLeftColorState, CRYSTAL_COLORS.left),
       right: hexToRgb(this.crystalsRightColorState, CRYSTAL_COLORS.right),

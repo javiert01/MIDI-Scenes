@@ -32,6 +32,10 @@ Overlays except for one deliberate seam: **crystal placement**.
 
 ### Piano Preview
 
+> Superseded in part by ADR-0006: the Piano Preview and the Chroma Key green now
+> share one mutually-exclusive **Keyboard band** control (default Piano Preview),
+> not the separate default-off toggle described here.
+
 - An engine Overlay filling the Chroma Key band, drawn last (topmost), covering the
   green while shown. Its own sidebar toggle, persisted, default off.
 - Reactive: the engine feeds it note-on/note-off; held keys light up in their

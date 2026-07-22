@@ -242,6 +242,7 @@ describe('VisualizerEngine', () => {
 
     const engine = new VisualizerEngine(container, { createP5: factory });
     const stub = getInstance();
+    engine.setKeyboardBand('chroma'); // green fills the band only when the Chroma Key band is selected
     stub.calls = [];
 
     stub.draw?.();
@@ -279,40 +280,87 @@ describe('VisualizerEngine', () => {
   });
 });
 
-describe('VisualizerEngine chroma key toggle', () => {
-  it('defaults to visible', () => {
+describe('VisualizerEngine keyboard band selector', () => {
+  // A minimal legacy snapshot (pre keyboard-band), overlaid with band-relevant
+  // fields, for exercising the load-path migration from the old two booleans.
+  function legacySnapshot(fields: Record<string, unknown>) {
+    return JSON.stringify({
+      version: 1,
+      activeSceneId: null,
+      paramValues: {},
+      deviceName: null,
+      resolutionPreset: '1600x800',
+      ...fields,
+    });
+  }
+
+  it('defaults a fresh load to the Piano Preview band', () => {
     const { factory } = stubP5Factory();
     const container = document.createElement('div');
 
     const engine = new VisualizerEngine(container, { createP5: factory });
 
-    expect(engine.chromaKeyVisible).toBe(true);
+    expect(engine.keyboardBand).toBe('piano');
+    expect(engine.pianoPreviewVisible).toBe(true);
+    expect(engine.chromaKeyVisible).toBe(false);
   });
 
-  it('setChromaKeyVisible(false) stops painting the green rect, without recreating the canvas', () => {
+  it('selecting Chroma Key deselects Piano Preview (mutual exclusivity)', () => {
+    const { factory } = stubP5Factory();
+    const container = document.createElement('div');
+    const engine = new VisualizerEngine(container, { createP5: factory });
+
+    engine.setKeyboardBand('chroma');
+
+    expect(engine.chromaKeyVisible).toBe(true);
+    expect(engine.pianoPreviewVisible).toBe(false);
+  });
+
+  it('selecting Piano Preview deselects Chroma Key', () => {
+    const { factory } = stubP5Factory();
+    const container = document.createElement('div');
+    const engine = new VisualizerEngine(container, { createP5: factory });
+    engine.setKeyboardBand('chroma');
+
+    engine.setKeyboardBand('piano');
+
+    expect(engine.pianoPreviewVisible).toBe(true);
+    expect(engine.chromaKeyVisible).toBe(false);
+  });
+
+  it('None clears both bands', () => {
+    const { factory } = stubP5Factory();
+    const container = document.createElement('div');
+    const engine = new VisualizerEngine(container, { createP5: factory });
+
+    engine.setKeyboardBand('none');
+
+    expect(engine.keyboardBand).toBe('none');
+    expect(engine.pianoPreviewVisible).toBe(false);
+    expect(engine.chromaKeyVisible).toBe(false);
+  });
+
+  it('the None band paints neither the green rect nor the preview, without recreating the canvas', () => {
     const { factory, getInstance } = stubP5Factory();
     const container = document.createElement('div');
     const engine = new VisualizerEngine(container, { createP5: factory });
     const stub = getInstance();
 
-    engine.setChromaKeyVisible(false);
-    engine.setPianoPreviewVisible(false); // the Piano Preview (on by default) also draws rects
+    engine.setKeyboardBand('none');
     stub.calls = [];
     stub.draw?.();
 
-    expect(engine.chromaKeyVisible).toBe(false);
     expect(stub.calls.some((c) => c.name === 'rect')).toBe(false);
     expect(stub.calls.some((c) => c.name === 'createCanvas')).toBe(false);
   });
 
-  it('setChromaKeyVisible(true) resumes painting the green rect', () => {
+  it('the Chroma Key band paints the green rect', () => {
     const { factory, getInstance } = stubP5Factory();
     const container = document.createElement('div');
     const engine = new VisualizerEngine(container, { createP5: factory });
     const stub = getInstance();
-    engine.setChromaKeyVisible(false);
 
-    engine.setChromaKeyVisible(true);
+    engine.setKeyboardBand('chroma');
     stub.calls = [];
     stub.draw?.();
 
@@ -323,14 +371,14 @@ describe('VisualizerEngine chroma key toggle', () => {
     });
   });
 
-  it('the visualization area still confines Scenes when the chroma key is hidden', () => {
+  it('the visualization area still confines Scenes when the band is None', () => {
     const { factory, getInstance } = stubP5Factory();
     const container = document.createElement('div');
     const sceneA = new FakeScene('a', 'Scene A');
     const engine = new VisualizerEngine(container, { createP5: factory, scenes: [sceneA] });
     const stub = getInstance();
 
-    engine.setChromaKeyVisible(false);
+    engine.setKeyboardBand('none');
     stub.draw?.();
 
     const ctx = sceneA.update.mock.calls.at(-1)![0] as SceneContext;
@@ -338,28 +386,70 @@ describe('VisualizerEngine chroma key toggle', () => {
     expect(ctx.height).toBe(engine.height);
   });
 
-  it('notifies subscribers when the chroma key visibility changes', () => {
+  it('notifies subscribers when the band changes', () => {
     const { factory } = stubP5Factory();
     const container = document.createElement('div');
     const engine = new VisualizerEngine(container, { createP5: factory });
     const listener = vi.fn();
     engine.subscribe(listener);
 
-    engine.setChromaKeyVisible(false);
+    engine.setKeyboardBand('chroma');
 
     expect(listener).toHaveBeenCalledTimes(1);
   });
 
-  it('setting the same visibility again is a no-op notification-wise', () => {
+  it('setting the same band again is a no-op notification-wise', () => {
     const { factory } = stubP5Factory();
     const container = document.createElement('div');
     const engine = new VisualizerEngine(container, { createP5: factory });
     const listener = vi.fn();
     engine.subscribe(listener);
 
-    engine.setChromaKeyVisible(true);
+    engine.setKeyboardBand('piano'); // already the default
 
     expect(listener).not.toHaveBeenCalled();
+  });
+
+  it('migrates legacy "both on" persisted state to Piano Preview', () => {
+    const { factory } = stubP5Factory();
+    const container = document.createElement('div');
+    const storage = new FakeStorage();
+    storage.setItem(
+      STORAGE_KEY,
+      legacySnapshot({ chromaKeyVisible: true, pianoPreviewVisible: true }),
+    );
+
+    const engine = new VisualizerEngine(container, { createP5: factory, storage });
+
+    expect(engine.keyboardBand).toBe('piano');
+  });
+
+  it('migrates legacy chroma-only persisted state to Chroma Key', () => {
+    const { factory } = stubP5Factory();
+    const container = document.createElement('div');
+    const storage = new FakeStorage();
+    storage.setItem(
+      STORAGE_KEY,
+      legacySnapshot({ chromaKeyVisible: true, pianoPreviewVisible: false }),
+    );
+
+    const engine = new VisualizerEngine(container, { createP5: factory, storage });
+
+    expect(engine.keyboardBand).toBe('chroma');
+  });
+
+  it('migrates legacy "both off" persisted state to None', () => {
+    const { factory } = stubP5Factory();
+    const container = document.createElement('div');
+    const storage = new FakeStorage();
+    storage.setItem(
+      STORAGE_KEY,
+      legacySnapshot({ chromaKeyVisible: false, pianoPreviewVisible: false }),
+    );
+
+    const engine = new VisualizerEngine(container, { createP5: factory, storage });
+
+    expect(engine.keyboardBand).toBe('none');
   });
 });
 
@@ -960,7 +1050,7 @@ describe('VisualizerEngine session persistence (T11)', () => {
     ];
   }
 
-  it('serialize() captures active Scene, per-Scene params, Device name, resolution, and chroma key', async () => {
+  it('serialize() captures active Scene, per-Scene params, Device name, resolution, and keyboard band', async () => {
     const { factory } = stubP5Factory();
     const container = document.createElement('div');
     const sceneA = new ParamScene('a', 'Scene A');
@@ -978,7 +1068,7 @@ describe('VisualizerEngine session persistence (T11)', () => {
     engine.selectScene('b');
     engine.setParam('a', 'speed', 15);
     engine.setResolutionPreset('1920x1080');
-    engine.setChromaKeyVisible(false);
+    engine.setKeyboardBand('chroma');
     engine.selectDevice('dev-b');
 
     expect(engine.serialize()).toEqual({
@@ -987,12 +1077,11 @@ describe('VisualizerEngine session persistence (T11)', () => {
       paramValues: { a: { speed: 15 }, b: {} },
       deviceName: 'Keyboard B',
       resolutionPreset: '1920x1080',
-      chromaKeyVisible: false,
+      keyboardBand: 'chroma',
       crystalsVisible: true,
       crystalsOpacity: 1,
       crystalsLeftColor: '#aa55ff',
       crystalsRightColor: '#ff5a14',
-      pianoPreviewVisible: true,
       virtualInputEnabled: false,
     });
   });
@@ -1013,7 +1102,7 @@ describe('VisualizerEngine session persistence (T11)', () => {
     source.selectScene('b');
     source.setParam('a', 'speed', 15);
     source.setResolutionPreset('1920x1080');
-    source.setChromaKeyVisible(false);
+    source.setKeyboardBand('chroma');
     source.selectDevice('dev-b');
     const snapshot = source.serialize();
 
@@ -1035,7 +1124,7 @@ describe('VisualizerEngine session persistence (T11)', () => {
 
     expect(target.activeSceneId).toBe('b');
     expect(target.resolutionPreset).toBe('1920x1080');
-    expect(target.chromaKeyVisible).toBe(false);
+    expect(target.keyboardBand).toBe('chroma');
     expect(target.activeDeviceId).toBe('dev-b');
     target.selectScene('a');
     expect(target.params.find((p) => p.spec.key === 'speed')?.value).toBe(15);
@@ -1283,9 +1372,9 @@ describe('VisualizerEngine Crystal Overlay (T15)', () => {
       storage: new FakeStorage(),
       scenes,
     });
-    // Isolate crystals: the Piano Preview (on by default) draws its own narrow
-    // key rects that crystalRects() would otherwise count.
-    engine.setPianoPreviewVisible(false);
+    // Isolate crystals: the Piano Preview (the default band) draws its own narrow
+    // key rects that crystalRects() would otherwise count, so clear the band.
+    engine.setKeyboardBand('none');
     await flushMicrotasks();
     return { engine, midi, stub: getInstance() };
   }
@@ -1381,9 +1470,9 @@ describe('VisualizerEngine Crystals sidebar controls (T17)', () => {
       storage: new FakeStorage(),
       scenes,
     });
-    // Isolate crystals: the Piano Preview (on by default) draws its own narrow
-    // key rects that crystalRects() would otherwise count.
-    engine.setPianoPreviewVisible(false);
+    // Isolate crystals: the Piano Preview (the default band) draws its own narrow
+    // key rects that crystalRects() would otherwise count, so clear the band.
+    engine.setKeyboardBand('none');
     await flushMicrotasks();
     return { engine, midi, stub: getInstance() };
   }
@@ -1539,10 +1628,10 @@ describe('VisualizerEngine Piano Preview Overlay (T18)', () => {
     expect(labelTexts(stub)).toHaveLength(35);
   });
 
-  it('setPianoPreviewVisible(true) draws a full keyboard, one label per white key', async () => {
+  it('the piano band draws a full keyboard, one label per white key', async () => {
     const { engine, stub } = await setUpEngine();
 
-    engine.setPianoPreviewVisible(true);
+    engine.setKeyboardBand('piano');
     stub.calls = [];
     stub.draw?.();
 
@@ -1550,11 +1639,11 @@ describe('VisualizerEngine Piano Preview Overlay (T18)', () => {
     expect(labelTexts(stub)).toContain('C2');
   });
 
-  it('setPianoPreviewVisible(false) stops drawing the keyboard again', async () => {
+  it('leaving the piano band stops drawing the keyboard again', async () => {
     const { engine, stub } = await setUpEngine();
-    engine.setPianoPreviewVisible(true);
+    engine.setKeyboardBand('piano');
 
-    engine.setPianoPreviewVisible(false);
+    engine.setKeyboardBand('none');
     stub.calls = [];
     stub.draw?.();
 
@@ -1563,7 +1652,7 @@ describe('VisualizerEngine Piano Preview Overlay (T18)', () => {
 
   it('lights a held key in its Crystal half-colour and clears it on release', async () => {
     const { engine, midi, stub } = await setUpEngine();
-    engine.setPianoPreviewVisible(true);
+    engine.setKeyboardBand('piano');
 
     midi.emit('dev-a', [0x90, 36, 100]); // C2, left half
     stub.calls = [];
@@ -1582,7 +1671,7 @@ describe('VisualizerEngine Piano Preview Overlay (T18)', () => {
       ctx.p.rect(1, 2, 3, 4); // stand-in for Scene bleed into the Chroma Key band
     });
     const { engine, stub } = await setUpEngine([scene]);
-    engine.setPianoPreviewVisible(true);
+    engine.setKeyboardBand('piano');
 
     stub.calls = [];
     stub.draw?.();
@@ -1595,19 +1684,20 @@ describe('VisualizerEngine Piano Preview Overlay (T18)', () => {
     expect(firstLabelIndex).toBeGreaterThan(sceneRectIndex);
   });
 
-  it('persists pianoPreviewVisible across serialize()/restore()', async () => {
+  it('persists the keyboard band across serialize()/restore()', async () => {
     const { engine: source } = await setUpEngine();
-    source.setPianoPreviewVisible(true);
+    source.setKeyboardBand('none');
     const snapshot = source.serialize();
-    expect(snapshot.pianoPreviewVisible).toBe(true);
+    expect(snapshot.keyboardBand).toBe('none');
 
     const { engine: target } = await setUpEngine();
     target.restore(snapshot);
 
-    expect(target.pianoPreviewVisible).toBe(true);
+    expect(target.keyboardBand).toBe('none');
+    expect(target.pianoPreviewVisible).toBe(false);
   });
 
-  it('falls back to the default (visible) when older persisted state lacks the field', async () => {
+  it('falls back to the default (Piano Preview) when older persisted state lacks the field', async () => {
     const { factory } = stubP5Factory();
     const container = document.createElement('div');
     const storage = new FakeStorage();
@@ -1710,7 +1800,7 @@ describe('VisualizerEngine No Scene (T16)', () => {
     const stub = getInstance();
 
     engine.selectScene(NO_SCENE_ID);
-    engine.setPianoPreviewVisible(false); // isolate crystals from the Piano Preview's key rects
+    engine.setKeyboardBand('none'); // isolate crystals from the Piano Preview's key rects
     midi.emit('dev-a', [0x90, 60, 100]);
     stub.calls = [];
     stub.draw?.();
@@ -1976,7 +2066,7 @@ describe('VisualizerEngine Virtual Input (T19)', () => {
     const scene = new FakeScene('a', 'Scene A');
     const { engine, stub } = setUpEngine([scene]);
     engine.setVirtualInputEnabled(true);
-    engine.setPianoPreviewVisible(true);
+    engine.setKeyboardBand('piano');
 
     // A point in the band's lower area over the leftmost white key (C2, note 36).
     stub.mouseX = 5;
@@ -1991,11 +2081,11 @@ describe('VisualizerEngine Virtual Input (T19)', () => {
     expect((scene.onNoteOff.mock.calls[0][0] as NoteEvent).note).toBe(36);
   });
 
-  it('does not play a click when the Piano Preview is hidden', () => {
+  it('does not play a click when the band is not the Piano Preview', () => {
     const scene = new FakeScene('a', 'Scene A');
     const { engine, stub } = setUpEngine([scene]);
     engine.setVirtualInputEnabled(true);
-    engine.setPianoPreviewVisible(false); // hide the preview (on by default)
+    engine.setKeyboardBand('chroma'); // leave the piano band, removing the click surface
 
     stub.mouseX = 5;
     stub.mouseY = engine.visualizationHeight + engine.chromaKeyHeight - 5;
@@ -2004,11 +2094,29 @@ describe('VisualizerEngine Virtual Input (T19)', () => {
     expect(scene.onNoteOn).not.toHaveBeenCalled();
   });
 
+  it('releases a held Piano Preview click note when the band leaves Piano Preview', () => {
+    const scene = new FakeScene('a', 'Scene A');
+    const { engine, stub } = setUpEngine([scene]);
+    engine.setVirtualInputEnabled(true);
+    engine.setKeyboardBand('piano');
+
+    stub.mouseX = 5;
+    stub.mouseY = engine.visualizationHeight + engine.chromaKeyHeight - 5;
+    stub.mousePressed?.();
+    expect(scene.onNoteOn).toHaveBeenCalledTimes(1);
+    const heldNote = (scene.onNoteOn.mock.calls[0][0] as NoteEvent).note;
+
+    engine.setKeyboardBand('chroma');
+
+    expect(scene.onNoteOff).toHaveBeenCalledTimes(1);
+    expect((scene.onNoteOff.mock.calls[0][0] as NoteEvent).note).toBe(heldNote);
+  });
+
   it('glissandos across keys on drag, releasing the old note and pressing the new', () => {
     const scene = new FakeScene('a', 'Scene A');
     const { engine, stub } = setUpEngine([scene]);
     engine.setVirtualInputEnabled(true);
-    engine.setPianoPreviewVisible(true);
+    engine.setKeyboardBand('piano');
     const bandY = engine.visualizationHeight + engine.chromaKeyHeight - 5;
 
     stub.mouseX = 5;
