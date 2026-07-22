@@ -31,16 +31,47 @@
   flex-shrink: 0;
   background: #16181d;
   color: #e6e6e6;
-  padding: 1rem;
-  padding-top: 3.5rem;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.sidebar-header {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #2a2d35;
+}
+
+.sidebar-header-top {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.sidebar-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #9aa0aa;
+}
+
+.sidebar-header-top .activity-dot {
+  margin-left: auto;
+}
+
+.sidebar-body {
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
+  padding: 1rem;
 }
 
 .sidebar-toggle {
-  position: fixed;
-  top: 1rem;
-  left: 1rem;
-  z-index: 10;
+  flex-shrink: 0;
   width: 2.25rem;
   height: 2.25rem;
   display: flex;
@@ -54,6 +85,13 @@
   font-size: 1.1rem;
   line-height: 1;
   cursor: pointer;
+}
+
+.sidebar-toggle--floating {
+  position: fixed;
+  top: 1rem;
+  left: 1rem;
+  z-index: 10;
 }
 
 .accordion-section + .accordion-section {
@@ -186,15 +224,6 @@
   font-style: italic;
 }
 
-.midi-activity {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 0.75rem;
-  font-size: 0.85rem;
-  color: #9aa0aa;
-}
-
 .activity-dot {
   width: 0.6rem;
   height: 0.6rem;
@@ -213,15 +242,19 @@
   box-shadow: 0 0 6px #7cf29c;
 }
 
-.present-mode-button {
+.present-button {
   width: 100%;
-  text-align: left;
   padding: 0.5rem 0.75rem;
   border-radius: 6px;
-  border: 1px solid #2a2d35;
-  background: #1e2129;
+  border: 1px solid #4f8cff;
+  background: #26314a;
   color: inherit;
+  font-size: 0.85rem;
   cursor: pointer;
+}
+
+.present-button:hover {
+  background: #2d3a58;
 }
 
 .present-mode-exit {

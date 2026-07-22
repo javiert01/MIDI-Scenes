@@ -37,33 +37,63 @@ function App() {
     <div className="app-shell">
       {engine && !presentMode && sidebarOpen && (
         <aside className="sidebar">
-          <PresentModeToggle onEnter={() => setPresentMode(true)} />
-          <SceneSwitcher engine={engine} />
-          <ParamControls engine={engine} />
-          <ChromaKeyToggle engine={engine} />
-          <CrystalsControl engine={engine} />
-          <PianoPreviewToggle engine={engine} />
-          <VirtualInputControl engine={engine} />
-          <ResolutionPicker engine={engine} />
-          <DevicePicker engine={engine} />
+          <SidebarHeader
+            engine={engine}
+            onCollapse={() => setSidebarOpen(false)}
+            onPresent={() => setPresentMode(true)}
+          />
+          <div className="sidebar-body">
+            <SceneSwitcher engine={engine} />
+            <ParamControls engine={engine} />
+            <ChromaKeyToggle engine={engine} />
+            <CrystalsControl engine={engine} />
+            <PianoPreviewToggle engine={engine} />
+            <VirtualInputControl engine={engine} />
+            <ResolutionPicker engine={engine} />
+            <DevicePicker engine={engine} />
+          </div>
         </aside>
       )}
       <div className="canvas-stage">
         <CanvasContainer containerRef={containerRef} engine={engine} />
         {presentMode && <PresentModeExit onExit={() => setPresentMode(false)} />}
       </div>
-      {engine && !presentMode && (
-        <SidebarToggle open={sidebarOpen} onToggle={() => setSidebarOpen((open) => !open)} />
+      {engine && !presentMode && !sidebarOpen && (
+        <SidebarToggle open={false} onToggle={() => setSidebarOpen(true)} />
       )}
     </div>
   );
 }
 
+function SidebarHeader({
+  engine,
+  onCollapse,
+  onPresent,
+}: {
+  engine: VisualizerEngine;
+  onCollapse: () => void;
+  onPresent: () => void;
+}) {
+  return (
+    <div className="sidebar-header">
+      <div className="sidebar-header-top">
+        <SidebarToggle open onToggle={onCollapse} />
+        <span className="sidebar-title">Controls</span>
+        <MidiStatusDot engine={engine} />
+      </div>
+      <button type="button" className="present-button" onClick={onPresent}>
+        Present
+      </button>
+    </div>
+  );
+}
+
+// Open: the toggle sits in the header. Collapsed: it floats top-left to reopen.
 function SidebarToggle({ open, onToggle }: { open: boolean; onToggle: () => void }) {
   return (
     <button
       type="button"
-      className="sidebar-toggle"
+      className={`sidebar-toggle${open ? '' : ' sidebar-toggle--floating'}`}
       onClick={onToggle}
       aria-label={open ? 'Hide sidebar' : 'Show sidebar'}
       aria-expanded={open}
@@ -99,16 +129,6 @@ function AccordionSection({
       </button>
       {open && <div className="accordion-content">{children}</div>}
     </section>
-  );
-}
-
-function PresentModeToggle({ onEnter }: { onEnter: () => void }) {
-  return (
-    <AccordionSection title="Present Mode">
-      <button type="button" className="present-mode-button" onClick={onEnter}>
-        Enter present mode
-      </button>
-    </AccordionSection>
   );
 }
 
@@ -471,7 +491,6 @@ function DevicePicker({ engine }: { engine: VisualizerEngine }) {
 
   return (
     <AccordionSection title="MIDI Device" defaultOpen>
-      <ActivityIndicator engine={engine} />
       {devices.length === 0 ? (
         <p className="device-empty">No Device connected</p>
       ) : (
@@ -495,7 +514,7 @@ function DevicePicker({ engine }: { engine: VisualizerEngine }) {
 
 const ACTIVITY_PULSE_MS = 200;
 
-function ActivityIndicator({ engine }: { engine: VisualizerEngine }) {
+function MidiStatusDot({ engine }: { engine: VisualizerEngine }) {
   const activeDeviceId = useSyncExternalStore(
     (onChange) => engine.subscribe(onChange),
     () => engine.activeDeviceId,
@@ -526,12 +545,12 @@ function ActivityIndicator({ engine }: { engine: VisualizerEngine }) {
   const statusText = activeDevice ? `Connected: ${activeDevice.label}` : 'No Device connected';
 
   return (
-    <div className="midi-activity">
-      <span
-        className={`activity-dot${activeDevice ? ' connected' : ''}${pulsing ? ' pulsing' : ''}`}
-      />
-      <span className="activity-status">{statusText}</span>
-    </div>
+    <span
+      className={`activity-dot${activeDevice ? ' connected' : ''}${pulsing ? ' pulsing' : ''}`}
+      role="status"
+      aria-label={statusText}
+      title={statusText}
+    />
   );
 }
 
