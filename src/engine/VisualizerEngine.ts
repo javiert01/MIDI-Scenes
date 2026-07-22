@@ -169,7 +169,7 @@ export class VisualizerEngine {
   private crystalsOpacityState = 1;
   private crystalsLeftColorState = DEFAULT_CRYSTAL_LEFT_COLOR;
   private crystalsRightColorState = DEFAULT_CRYSTAL_RIGHT_COLOR;
-  private pianoPreviewVisibleState = false;
+  private pianoPreviewVisibleState = true;
 
   // The Virtual Input: synthetic notes from the computer keyboard and Piano
   // Preview clicks, gated by one enable flag (see ADR-0005). Both surfaces feed

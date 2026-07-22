@@ -296,6 +296,7 @@ describe('VisualizerEngine chroma key toggle', () => {
     const stub = getInstance();
 
     engine.setChromaKeyVisible(false);
+    engine.setPianoPreviewVisible(false); // the Piano Preview (on by default) also draws rects
     stub.calls = [];
     stub.draw?.();
 
@@ -991,7 +992,7 @@ describe('VisualizerEngine session persistence (T11)', () => {
       crystalsOpacity: 1,
       crystalsLeftColor: '#aa55ff',
       crystalsRightColor: '#ff5a14',
-      pianoPreviewVisible: false,
+      pianoPreviewVisible: true,
       virtualInputEnabled: false,
     });
   });
@@ -1282,6 +1283,9 @@ describe('VisualizerEngine Crystal Overlay (T15)', () => {
       storage: new FakeStorage(),
       scenes,
     });
+    // Isolate crystals: the Piano Preview (on by default) draws its own narrow
+    // key rects that crystalRects() would otherwise count.
+    engine.setPianoPreviewVisible(false);
     await flushMicrotasks();
     return { engine, midi, stub: getInstance() };
   }
@@ -1377,6 +1381,9 @@ describe('VisualizerEngine Crystals sidebar controls (T17)', () => {
       storage: new FakeStorage(),
       scenes,
     });
+    // Isolate crystals: the Piano Preview (on by default) draws its own narrow
+    // key rects that crystalRects() would otherwise count.
+    engine.setPianoPreviewVisible(false);
     await flushMicrotasks();
     return { engine, midi, stub: getInstance() };
   }
@@ -1522,14 +1529,14 @@ describe('VisualizerEngine Piano Preview Overlay (T18)', () => {
     return { engine, midi, stub: getInstance() };
   }
 
-  it('defaults to hidden', async () => {
+  it('defaults to visible', async () => {
     const { engine, stub } = await setUpEngine();
 
     stub.calls = [];
     stub.draw?.();
 
-    expect(engine.pianoPreviewVisible).toBe(false);
-    expect(labelTexts(stub)).toHaveLength(0);
+    expect(engine.pianoPreviewVisible).toBe(true);
+    expect(labelTexts(stub)).toHaveLength(35);
   });
 
   it('setPianoPreviewVisible(true) draws a full keyboard, one label per white key', async () => {
@@ -1600,7 +1607,7 @@ describe('VisualizerEngine Piano Preview Overlay (T18)', () => {
     expect(target.pianoPreviewVisible).toBe(true);
   });
 
-  it('falls back to hidden when older persisted state lacks the field', async () => {
+  it('falls back to the default (visible) when older persisted state lacks the field', async () => {
     const { factory } = stubP5Factory();
     const container = document.createElement('div');
     const storage = new FakeStorage();
@@ -1618,7 +1625,7 @@ describe('VisualizerEngine Piano Preview Overlay (T18)', () => {
 
     const engine = new VisualizerEngine(container, { createP5: factory, storage });
 
-    expect(engine.pianoPreviewVisible).toBe(false);
+    expect(engine.pianoPreviewVisible).toBe(true);
   });
 });
 
@@ -1703,6 +1710,7 @@ describe('VisualizerEngine No Scene (T16)', () => {
     const stub = getInstance();
 
     engine.selectScene(NO_SCENE_ID);
+    engine.setPianoPreviewVisible(false); // isolate crystals from the Piano Preview's key rects
     midi.emit('dev-a', [0x90, 60, 100]);
     stub.calls = [];
     stub.draw?.();
@@ -1986,7 +1994,8 @@ describe('VisualizerEngine Virtual Input (T19)', () => {
   it('does not play a click when the Piano Preview is hidden', () => {
     const scene = new FakeScene('a', 'Scene A');
     const { engine, stub } = setUpEngine([scene]);
-    engine.setVirtualInputEnabled(true); // preview stays hidden
+    engine.setVirtualInputEnabled(true);
+    engine.setPianoPreviewVisible(false); // hide the preview (on by default)
 
     stub.mouseX = 5;
     stub.mouseY = engine.visualizationHeight + engine.chromaKeyHeight - 5;
