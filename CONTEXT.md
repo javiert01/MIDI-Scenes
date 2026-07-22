@@ -21,8 +21,9 @@ _Avoid_: Using it to mean the whole visualization. (A Crystal is *not* an Animat
 **Overlay**:
 An engine-owned visual layer drawn independently of the Active Scene, present
 regardless of which Scene runs (or whether none does). The Chroma Key band, the
-Piano Preview, and the Crystals are Overlays. Unlike Scenes, Overlays are not
-mutually exclusive — they coexist with any Scene and with No Scene.
+Piano Preview, and the Crystals are Overlays. Overlays coexist with any Scene and
+with No Scene; they are independent of each other too, except that the Piano Preview
+and the Chroma Key green share the Keyboard band and so are mutually exclusive.
 _Avoid_: Scene (an Overlay is never selected from the Scene list), layer (too vague).
 
 **Crystal**:
@@ -35,12 +36,21 @@ engine draws them on top.
 _Avoid_: Animation (a Crystal is no longer scoped to one Scene), particle.
 
 **Piano Preview**:
-A reactive keyboard Overlay filling the Chroma Key band — a stand-in for the
+A reactive keyboard Overlay filling the Keyboard band — a stand-in for the
 piano-hands footage, so the composition can be judged before recording. Held keys
 light up; white keys are labelled with note letters (and octave on each C). Shares
 the keyboard geometry that positions Crystals, so each key sits below its Crystal's
-column. Toggleable, default off; while shown it covers the green.
+column. One of the Keyboard band choices (the default); while shown it covers the green.
 _Avoid_: Piano (it is a preview stand-in, not an instrument the user plays).
+
+**Keyboard band**:
+The shared band at the canvas bottom (the bottom third) that at most one Overlay
+fills at a time: the Piano Preview, the Chroma Key green, or nothing. Because the
+Piano Preview and the Chroma Key green occupy the same pixels, they are one
+mutually-exclusive choice — `none` / `piano` / `chroma` — chosen from a single
+sidebar selector, not two independent toggles. Defaults to the Piano Preview; a
+legacy setup that had both on migrates to the Piano Preview.
+_Avoid_: Chroma Key band (the band is not the green; the green is one thing that can fill it).
 
 **Scene Registry**:
 The catalog of all available Scenes that the sidebar lists and the engine switches
@@ -75,8 +85,9 @@ instrument).
 
 **Chroma Key area**:
 The green-filled bottom third of the canvas, kept for compositing piano-hands
-footage under the visualization in a video editor. An Overlay. The Piano Preview,
-when shown, fills this same band and covers the green.
+footage under the visualization in a video editor. An Overlay filling the Keyboard
+band, mutually exclusive with the Piano Preview (which fills the same band and
+covers the green). Selected as the `chroma` Keyboard band choice.
 _Avoid_: Green screen, mask.
 
 **No Scene**:

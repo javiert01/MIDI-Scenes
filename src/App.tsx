@@ -8,7 +8,7 @@ import {
   useSyncExternalStore,
 } from 'react';
 import type { ReactNode, RefObject } from 'react';
-import { VisualizerEngine } from '@/engine/VisualizerEngine';
+import { VisualizerEngine, type KeyboardBand } from '@/engine/VisualizerEngine';
 import { createDefaultScenes } from '@/scenes';
 import type { ParamSpec, ParamValue } from '@/engine/scene';
 import {
@@ -69,8 +69,7 @@ function App() {
               </AccordionGroup>
               <AccordionGroup id="overlays" title="Overlays">
                 <CrystalsControl engine={engine} />
-                <PianoPreviewToggle engine={engine} />
-                <ChromaKeyToggle engine={engine} />
+                <KeyboardBandControl engine={engine} />
               </AccordionGroup>
               <ResolutionPicker engine={engine} />
             </div>
@@ -385,19 +384,37 @@ function ParamControl({
   }
 }
 
-function ChromaKeyToggle({ engine }: { engine: VisualizerEngine }) {
-  const chromaKeyVisible = useSyncExternalStore(
+// Piano Preview and the Chroma Key green share one keyboard band, so they are a
+// single mutually-exclusive choice — None / Piano Preview / Chroma Key — not two
+// independent toggles (see issue #22). Crystals stays its own member above.
+const KEYBOARD_BAND_OPTIONS: { value: KeyboardBand; label: string }[] = [
+  { value: 'none', label: 'None' },
+  { value: 'piano', label: 'Piano Preview' },
+  { value: 'chroma', label: 'Chroma Key' },
+];
+
+function KeyboardBandControl({ engine }: { engine: VisualizerEngine }) {
+  const band = useSyncExternalStore(
     (onChange) => engine.subscribe(onChange),
-    () => engine.chromaKeyVisible,
+    () => engine.keyboardBand,
   );
 
   return (
-    <AccordionSection id="overlays:chroma" title="Chroma Key">
-      <ToggleField
-        label="Show green area"
-        checked={chromaKeyVisible}
-        onChange={(checked) => engine.setChromaKeyVisible(checked)}
-      />
+    <AccordionSection id="overlays:keyboard-band" title="Keyboard band">
+      <div className="segmented" role="radiogroup" aria-label="Keyboard band">
+        {KEYBOARD_BAND_OPTIONS.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            role="radio"
+            aria-checked={option.value === band}
+            className={`segmented-option${option.value === band ? ' active' : ''}`}
+            onClick={() => engine.setKeyboardBand(option.value)}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
     </AccordionSection>
   );
 }
@@ -461,23 +478,6 @@ function CrystalsControl({ engine }: { engine: VisualizerEngine }) {
   );
 }
 
-function PianoPreviewToggle({ engine }: { engine: VisualizerEngine }) {
-  const pianoPreviewVisible = useSyncExternalStore(
-    (onChange) => engine.subscribe(onChange),
-    () => engine.pianoPreviewVisible,
-  );
-
-  return (
-    <AccordionSection id="overlays:piano" title="Piano Preview">
-      <ToggleField
-        label="Show Piano Preview"
-        checked={pianoPreviewVisible}
-        onChange={(checked) => engine.setPianoPreviewVisible(checked)}
-      />
-    </AccordionSection>
-  );
-}
-
 function VirtualInputControl({ engine }: { engine: VisualizerEngine }) {
   const virtualInputEnabled = useSyncExternalStore(
     (onChange) => engine.subscribe(onChange),
@@ -486,6 +486,12 @@ function VirtualInputControl({ engine }: { engine: VisualizerEngine }) {
   const octaveLabel = useSyncExternalStore(
     (onChange) => engine.subscribe(onChange),
     () => engine.virtualInputOctaveLabel,
+  );
+  // Clicking a Piano Preview key only plays while that band is showing, so the
+  // hint is only truthful then (see issue #22).
+  const pianoPreviewVisible = useSyncExternalStore(
+    (onChange) => engine.subscribe(onChange),
+    () => engine.pianoPreviewVisible,
   );
 
   return (
@@ -508,7 +514,9 @@ function VirtualInputControl({ engine }: { engine: VisualizerEngine }) {
         <p className="virtual-input-octave">
           Octave: <strong>{octaveLabel}</strong>
         </p>
-        <p className="virtual-input-hint">Or click keys on the Piano Preview.</p>
+        {pianoPreviewVisible && (
+          <p className="virtual-input-hint">Or click keys on the Piano Preview.</p>
+        )}
       </div>
     </AccordionSection>
   );

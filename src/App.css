@@ -174,6 +174,34 @@
   background: #26314a;
 }
 
+/* Segmented control: one row of mutually-exclusive options (e.g. Keyboard band). */
+.segmented {
+  display: flex;
+  border: 1px solid #2a2d35;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.segmented-option {
+  flex: 1;
+  padding: 0.45rem 0.5rem;
+  border: none;
+  border-left: 1px solid #2a2d35;
+  background: #1e2129;
+  color: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.segmented-option:first-child {
+  border-left: none;
+}
+
+.segmented-option.active {
+  background: #26314a;
+  color: #cfe0ff;
+}
+
 .param-controls {
   display: flex;
   flex-direction: column;
