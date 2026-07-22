@@ -1,8 +1,23 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import type { ReactNode, RefObject } from 'react';
 import { VisualizerEngine } from '@/engine/VisualizerEngine';
 import { createDefaultScenes } from '@/scenes';
 import type { ParamSpec, ParamValue } from '@/engine/scene';
+import {
+  isExpanded,
+  parseExpansion,
+  SIDEBAR_EXPANSION_KEY,
+  toggleExpansion,
+  type ExpansionState,
+} from '@/sidebarExpansion';
 import './App.css';
 
 function App() {
@@ -42,16 +57,24 @@ function App() {
             onCollapse={() => setSidebarOpen(false)}
             onPresent={() => setPresentMode(true)}
           />
-          <div className="sidebar-body">
-            <SceneSwitcher engine={engine} />
-            <ParamControls engine={engine} />
-            <ChromaKeyToggle engine={engine} />
-            <CrystalsControl engine={engine} />
-            <PianoPreviewToggle engine={engine} />
-            <VirtualInputControl engine={engine} />
-            <ResolutionPicker engine={engine} />
-            <DevicePicker engine={engine} />
-          </div>
+          <ExpansionProvider>
+            <div className="sidebar-body">
+              <AccordionGroup id="scene" title="Scene">
+                <SceneSwitcher engine={engine} />
+                <ParamControls engine={engine} />
+              </AccordionGroup>
+              <AccordionGroup id="input" title="Input">
+                <DevicePicker engine={engine} />
+                <VirtualInputControl engine={engine} />
+              </AccordionGroup>
+              <AccordionGroup id="overlays" title="Overlays">
+                <CrystalsControl engine={engine} />
+                <PianoPreviewToggle engine={engine} />
+                <ChromaKeyToggle engine={engine} />
+              </AccordionGroup>
+              <ResolutionPicker engine={engine} />
+            </div>
+          </ExpansionProvider>
         </aside>
       )}
       <div className="canvas-stage">
@@ -103,33 +126,91 @@ function SidebarToggle({ open, onToggle }: { open: boolean; onToggle: () => void
   );
 }
 
-function AccordionSection({
+// Sidebar expansion state persistence lives in `sidebarExpansion.ts` (React,
+// not the engine — ADR 0002). This context threads it to nested accordions.
+interface ExpansionContextValue {
+  isOpen: (id: string) => boolean;
+  toggle: (id: string) => void;
+}
+
+const ExpansionContext = createContext<ExpansionContextValue | null>(null);
+
+function useExpansion(id: string) {
+  const ctx = useContext(ExpansionContext);
+  if (!ctx) throw new Error('Accordion must be rendered inside an ExpansionProvider');
+  return { open: ctx.isOpen(id), toggle: () => ctx.toggle(id) };
+}
+
+function ExpansionProvider({ children }: { children: ReactNode }) {
+  const [state, setState] = useState<ExpansionState>(() =>
+    parseExpansion(
+      typeof window === 'undefined' ? null : window.localStorage.getItem(SIDEBAR_EXPANSION_KEY),
+    ),
+  );
+
+  const value: ExpansionContextValue = {
+    isOpen: (id) => isExpanded(state, id),
+    toggle: useCallback((id: string) => {
+      setState((prev) => {
+        const next = toggleExpansion(prev, id);
+        try {
+          window.localStorage.setItem(SIDEBAR_EXPANSION_KEY, JSON.stringify(next));
+        } catch {
+          // Ignore quota/availability failures; expansion is a UI nicety.
+        }
+        return next;
+      });
+    }, []),
+  };
+
+  return <ExpansionContext.Provider value={value}>{children}</ExpansionContext.Provider>;
+}
+
+// A collapsible disclosure keyed by `id` in the shared expansion state. The two
+// levels differ only in their CSS classes: `group` is a top-level group header,
+// `section` a member sub-section. Multiple may be open at once (non-exclusive).
+const ACCORDION_CLASSES = {
+  group: {
+    root: 'accordion-group',
+    header: 'accordion-group-header',
+    content: 'accordion-group-content',
+  },
+  section: { root: 'accordion-section', header: 'accordion-header', content: 'accordion-content' },
+} as const;
+
+function Accordion({
+  id,
   title,
-  defaultOpen = false,
+  level,
   children,
 }: {
+  id: string;
   title: string;
-  defaultOpen?: boolean;
+  level: keyof typeof ACCORDION_CLASSES;
   children: ReactNode;
 }) {
-  const [open, setOpen] = useState(defaultOpen);
+  const { open, toggle } = useExpansion(id);
+  const classes = ACCORDION_CLASSES[level];
 
   return (
-    <section className="accordion-section">
-      <button
-        type="button"
-        className="accordion-header"
-        onClick={() => setOpen((o) => !o)}
-        aria-expanded={open}
-      >
+    <section className={classes.root}>
+      <button type="button" className={classes.header} onClick={toggle} aria-expanded={open}>
         <span>{title}</span>
         <span className="accordion-chevron" aria-hidden="true">
           {open ? '▾' : '▸'}
         </span>
       </button>
-      {open && <div className="accordion-content">{children}</div>}
+      {open && <div className={classes.content}>{children}</div>}
     </section>
   );
+}
+
+function AccordionGroup(props: { id: string; title: string; children: ReactNode }) {
+  return <Accordion level="group" {...props} />;
+}
+
+function AccordionSection(props: { id: string; title: string; children: ReactNode }) {
+  return <Accordion level="section" {...props} />;
 }
 
 const PRESENT_EXIT_IDLE_MS = 2000;
@@ -198,7 +279,7 @@ function SceneSwitcher({ engine }: { engine: VisualizerEngine }) {
   );
 
   return (
-    <AccordionSection title="Scenes">
+    <AccordionSection id="scene:picker" title="Scene picker">
       <ul className="scene-list">
         {engine.scenes.map((scene) => (
           <li key={scene.id}>
@@ -227,7 +308,7 @@ function ParamControls({ engine }: { engine: VisualizerEngine }) {
   if (params.length === 0) return null;
 
   return (
-    <AccordionSection title="Parameters">
+    <AccordionSection id="scene:params" title="Parameters">
       <div className="param-controls">
         {params.map(({ spec, value }) => (
           <ParamControl
@@ -311,7 +392,7 @@ function ChromaKeyToggle({ engine }: { engine: VisualizerEngine }) {
   );
 
   return (
-    <AccordionSection title="Chroma Key">
+    <AccordionSection id="overlays:chroma" title="Chroma Key">
       <ToggleField
         label="Show green area"
         checked={chromaKeyVisible}
@@ -340,7 +421,7 @@ function CrystalsControl({ engine }: { engine: VisualizerEngine }) {
   );
 
   return (
-    <AccordionSection title="Crystals">
+    <AccordionSection id="overlays:crystals" title="Crystals">
       <ToggleField
         label="Show crystals"
         checked={crystalsVisible}
@@ -387,7 +468,7 @@ function PianoPreviewToggle({ engine }: { engine: VisualizerEngine }) {
   );
 
   return (
-    <AccordionSection title="Piano Preview">
+    <AccordionSection id="overlays:piano" title="Piano Preview">
       <ToggleField
         label="Show Piano Preview"
         checked={pianoPreviewVisible}
@@ -408,7 +489,7 @@ function VirtualInputControl({ engine }: { engine: VisualizerEngine }) {
   );
 
   return (
-    <AccordionSection title="Virtual Input">
+    <AccordionSection id="input:virtual" title="Virtual Input">
       <ToggleField
         label="Play without a device"
         checked={virtualInputEnabled}
@@ -440,7 +521,7 @@ function ResolutionPicker({ engine }: { engine: VisualizerEngine }) {
   );
 
   return (
-    <AccordionSection title="Resolution">
+    <AccordionSection id="resolution" title="Resolution">
       <ul className="scene-list">
         {engine.resolutionPresets.map((preset) => (
           <li key={preset}>
@@ -490,7 +571,7 @@ function DevicePicker({ engine }: { engine: VisualizerEngine }) {
   );
 
   return (
-    <AccordionSection title="MIDI Device" defaultOpen>
+    <AccordionSection id="input:device" title="MIDI Device">
       {devices.length === 0 ? (
         <p className="device-empty">No Device connected</p>
       ) : (

@@ -94,6 +94,34 @@
   z-index: 10;
 }
 
+.accordion-group + .accordion-group,
+.accordion-group + .accordion-section,
+.accordion-section + .accordion-group {
+  margin-top: 0.75rem;
+  border-top: 1px solid #2a2d35;
+  padding-top: 0.25rem;
+}
+
+.accordion-group-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0;
+  border: none;
+  background: none;
+  font-size: 0.95rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #e6e6e6;
+  cursor: pointer;
+}
+
+.accordion-group-content {
+  padding-left: 0.5rem;
+}
+
 .accordion-section + .accordion-section {
   margin-top: 0.5rem;
 }
