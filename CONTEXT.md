@@ -88,8 +88,9 @@ The engine-owned synthesizer that makes Virtual Input notes audible — a stand-
 instrument, the audible counterpart to the Piano Preview's visual stand-in. It
 sounds notes from the Virtual Input *only* (its computer-keyboard surface and its
 Piano Preview click surface); a real Device stays silent, being its own instrument.
-Native Web Audio, polyphonic (one voice per held note), a clean synth tone with a
-short release tail. Gated by its own **Sound** toggle (default on): audio sounds
+Native Web Audio, polyphonic (one voice per held note), a warm-analog tone — a
+detuned sawtooth unison plus a sub-octave sine through a resonant low-pass filter —
+with a short release tail. Gated by its own **Sound** toggle (default on): audio sounds
 only when the Virtual Input is enabled *and* Sound is on. Not an Overlay — it is
 non-visual, so it draws nothing in the Keyboard band.
 _Avoid_: Overlay (a Preview Synth renders no pixels), Piano (a synth tone, not a

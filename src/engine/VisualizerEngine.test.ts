@@ -8,6 +8,7 @@ import type {
   AudioContextLike,
   AudioNodeLike,
   AudioParamLike,
+  BiquadFilterNodeLike,
   GainNodeLike,
   OscillatorNodeLike,
 } from '@/engine/previewSynth';
@@ -2207,12 +2208,21 @@ class SpyGain implements GainNodeLike {
   connect(): void {}
 }
 
+class SpyBiquadFilter implements BiquadFilterNodeLike {
+  type: BiquadFilterType = 'lowpass';
+  frequency = new SpyAudioParam();
+  Q = new SpyAudioParam();
+  connect(): void {}
+}
+
 class SpyAudioContext implements AudioContextLike {
   currentTime = 0;
   state: AudioContextState = 'running';
   destination: AudioNodeLike = { connect() {} };
-  // One entry per sounded voice (the master gain is a SpyGain but not an oscillator).
+  // A warm-analog voice stacks several oscillators; count `filters` (one low-pass
+  // per voice) for a voice tally, and inspect `oscillators` for start/stop state.
   oscillators: SpyOscillator[] = [];
+  filters: SpyBiquadFilter[] = [];
   closed = false;
   createOscillator(): OscillatorNodeLike {
     const osc = new SpyOscillator();
@@ -2221,6 +2231,11 @@ class SpyAudioContext implements AudioContextLike {
   }
   createGain(): GainNodeLike {
     return new SpyGain();
+  }
+  createBiquadFilter(): BiquadFilterNodeLike {
+    const filter = new SpyBiquadFilter();
+    this.filters.push(filter);
+    return filter;
   }
   resume(): Promise<void> {
     return Promise.resolve();
@@ -2274,8 +2289,8 @@ describe('VisualizerEngine Preview Synth wiring (T25)', () => {
 
     keydown('KeyA');
 
-    expect(audio.oscillators).toHaveLength(1);
-    expect(audio.oscillators[0].started).toBe(true);
+    expect(audio.filters).toHaveLength(1); // one voice
+    expect(audio.oscillators.every((o) => o.started)).toBe(true);
   });
 
   it('sounds a synth voice for a Piano Preview click', () => {
@@ -2287,8 +2302,8 @@ describe('VisualizerEngine Preview Synth wiring (T25)', () => {
     stub.mouseY = engine.visualizationHeight + engine.chromaKeyHeight - 5;
     stub.mousePressed?.();
 
-    expect(audio.oscillators).toHaveLength(1);
-    expect(audio.oscillators[0].started).toBe(true);
+    expect(audio.filters).toHaveLength(1); // one voice
+    expect(audio.oscillators.every((o) => o.started)).toBe(true);
   });
 
   it('glissandos the synth voice on drag: releases the old voice and sounds a new one', () => {
@@ -2305,9 +2320,10 @@ describe('VisualizerEngine Preview Synth wiring (T25)', () => {
     stub.mouseX = 5 + Math.floor((2 * engine.width) / 35);
     stub.mouseDragged?.();
 
-    expect(audio.oscillators).toHaveLength(2); // first voice + the dragged-to voice
+    expect(audio.filters).toHaveLength(2); // first voice + the dragged-to voice
     expect(audio.oscillators[0].stopped).toBe(true); // old voice released
-    expect(audio.oscillators[1].started).toBe(true); // new voice sounding
+    const newest = audio.oscillators.at(-1)!;
+    expect(newest.started && !newest.stopped).toBe(true); // new voice sounding
   });
 
   it('stays silent for a real Device note', async () => {
@@ -2364,7 +2380,7 @@ describe('VisualizerEngine Preview Synth wiring (T25)', () => {
     expect(audio.oscillators).toHaveLength(0); // the held key does not retroactively sound
 
     keydown('KeyS'); // a subsequent note does
-    expect(audio.oscillators).toHaveLength(1);
+    expect(audio.filters).toHaveLength(1);
   });
 
   it('releases sounding voices on keyup', () => {

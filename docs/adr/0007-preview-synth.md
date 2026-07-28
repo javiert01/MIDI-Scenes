@@ -7,10 +7,11 @@ Preview — a stand-in instrument, not a real piano.
 
 ## Decision
 
-- **Native Web Audio, no dependency.** A hand-rolled oscillator + ADSR envelope in a
-  pure `previewSynth.ts` module (unit-tested like `virtualKeyboard.ts` / `midi.ts`),
-  polyphonic (one voice per held note), clean synth tone with a short release tail
-  (~200 ms). We rejected `p5.sound` (a large addon wrapping the same Web Audio API,
+- **Native Web Audio, no dependency.** A hand-rolled synthesizer in a pure
+  `previewSynth.ts` module (unit-tested like `virtualKeyboard.ts` / `midi.ts`),
+  polyphonic (one voice per held note). Each voice is a warm-analog stack — a detuned
+  sawtooth unison plus a sub-octave sine, through a resonant low-pass filter with its
+  own envelope and a shared amplitude ADSR — with a short release tail (~200 ms). We rejected `p5.sound` (a large addon wrapping the same Web Audio API,
   ~2% of which we'd use) and a sampled piano (Tone.js + sample assets) as overkill for
   what is auditory feedback, not a performance instrument.
 

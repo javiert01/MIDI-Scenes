@@ -1,8 +1,9 @@
 /**
  * The Preview Synth: a native Web Audio synthesizer that makes Virtual Input
  * notes audible (see the **Preview Synth** entry in `CONTEXT.md` and
- * `docs/adr/0007-preview-synth.md`). Polyphonic — one oscillator + ADSR voice
- * per held note number — with a clean synth tone and a short release tail so a
+ * `docs/adr/0007-preview-synth.md`). Polyphonic — one warm-analog voice per held
+ * note number: a detuned sawtooth unison plus a sub-octave sine, through a
+ * resonant low-pass filter and a shared ADSR, with a short release tail so a
  * note-off never clicks. A single conservative master gain gives chords the
  * headroom not to clip; there is no volume control in v1.
  *
@@ -38,6 +39,13 @@ export interface OscillatorNodeLike extends AudioNodeLike {
   stop(when?: number): void;
 }
 
+/** A resonant filter node; the synth uses one low-pass per voice for warmth. */
+export interface BiquadFilterNodeLike extends AudioNodeLike {
+  type: BiquadFilterType;
+  frequency: AudioParamLike;
+  Q: AudioParamLike;
+}
+
 /** The subset of `AudioContext` the synth depends on; lets tests inject a fake. */
 export interface AudioContextLike {
   readonly currentTime: number;
@@ -45,6 +53,7 @@ export interface AudioContextLike {
   readonly state?: AudioContextState;
   createOscillator(): OscillatorNodeLike;
   createGain(): GainNodeLike;
+  createBiquadFilter(): BiquadFilterNodeLike;
   resume?(): Promise<void>;
   close?(): Promise<void>;
 }
@@ -69,8 +78,34 @@ export const defaultAudioContextFactory: AudioContextFactory = () => {
   return new Ctor();
 };
 
-/** Oscillator waveform — a clean, mellow synth tone. */
-const OSC_TYPE: OscillatorType = 'triangle';
+/**
+ * Warm analog voice. Each note stacks a small unison of detuned sawtooth
+ * oscillators (rich harmonics that beat gently against each other for width) with
+ * a sub-octave sine for body, run through a resonant low-pass filter so the tone
+ * stays warm rather than buzzy. See ADR-0007.
+ */
+/** Waveform of the unison oscillators — harmonically rich, tamed by the filter. */
+const OSC_TYPE: OscillatorType = 'sawtooth';
+/** Waveform of the sub-octave voice — a clean sine for weight, no extra buzz. */
+const SUB_OSC_TYPE: OscillatorType = 'sine';
+/**
+ * Detune (in cents) of the unison oscillators around the played pitch. One sits
+ * dead-on, the others a touch sharp/flat so they beat against each other — the
+ * shimmer that makes the tone feel analog rather than static.
+ */
+const UNISON_OFFSETS_CENTS = [-7, 0, 7];
+/** Summed level of the three unison oscillators, feeding the amplitude envelope. */
+const UNISON_MIX_LEVEL = 0.28;
+/** Level of the sub-octave sine — present for body, under the unison so it never booms. */
+const SUB_MIX_LEVEL = 0.2;
+/** Filter resonance: a gentle bump at the cutoff for a little analog character. */
+const FILTER_Q = 1;
+/** Low-pass cutoff multipliers over the note's own frequency, so high notes stay bright. */
+const FILTER_PEAK_MULTIPLE = 14; // open and bright at the attack transient
+const FILTER_SUSTAIN_MULTIPLE = 6; // settles warmer while the note is held
+/** Cutoff bounds (Hz) so the filter neither closes to a thud nor opens past usefulness. */
+const FILTER_MIN_HZ = 500;
+const FILTER_MAX_HZ = 16000;
 /** Fast attack so notes speak immediately (seconds). */
 const ATTACK_SECONDS = 0.01;
 /** Brief decay from peak to the sustain level (seconds). */
@@ -92,8 +127,19 @@ export function midiToFrequency(note: number): number {
   return 440 * 2 ** ((note - 69) / 12);
 }
 
+/** Shifts a frequency by a number of cents (1200 cents = one octave). */
+function detune(freq: number, cents: number): number {
+  return freq * 2 ** (cents / 1200);
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
 interface Voice {
-  osc: OscillatorNodeLike;
+  /** Every oscillator in the voice — the unison stack plus the sub — stopped together. */
+  oscillators: OscillatorNodeLike[];
+  /** The amplitude-envelope gain; released to silence on note-off. */
   gain: GainNodeLike;
 }
 
@@ -136,24 +182,65 @@ export class PreviewSynth {
     const ctx = this.ensureContext();
     if (!ctx || !this.master) return;
 
-    // Retrigger: release the held voice so we never orphan its oscillator.
+    // Retrigger: release the held voice so we never orphan its oscillators.
     if (this.voices.has(note)) this.noteOff(note);
 
     const now = ctx.currentTime;
-    const osc = ctx.createOscillator();
-    osc.type = OSC_TYPE;
-    osc.frequency.setValueAtTime(midiToFrequency(note), now);
+    const freq = midiToFrequency(note);
+    const decayEnd = now + ATTACK_SECONDS + DECAY_SECONDS;
 
+    // Amplitude envelope shared by the whole voice: silent -> peak -> sustain.
     const gain = ctx.createGain();
     gain.gain.setValueAtTime(0, now);
     gain.gain.linearRampToValueAtTime(PEAK_LEVEL, now + ATTACK_SECONDS);
-    gain.gain.linearRampToValueAtTime(SUSTAIN_LEVEL, now + ATTACK_SECONDS + DECAY_SECONDS);
+    gain.gain.linearRampToValueAtTime(SUSTAIN_LEVEL, decayEnd);
 
-    osc.connect(gain);
+    // Low-pass filter with its own envelope: bright at the attack, warmer as it settles.
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.Q.setValueAtTime(FILTER_Q, now);
+    filter.frequency.setValueAtTime(
+      clamp(freq * FILTER_SUSTAIN_MULTIPLE, FILTER_MIN_HZ, FILTER_MAX_HZ),
+      now,
+    );
+    filter.frequency.linearRampToValueAtTime(
+      clamp(freq * FILTER_PEAK_MULTIPLE, FILTER_MIN_HZ, FILTER_MAX_HZ),
+      now + ATTACK_SECONDS,
+    );
+    filter.frequency.linearRampToValueAtTime(
+      clamp(freq * FILTER_SUSTAIN_MULTIPLE, FILTER_MIN_HZ, FILTER_MAX_HZ),
+      decayEnd,
+    );
+    filter.connect(gain);
     gain.connect(this.master);
-    osc.start(now);
 
-    this.voices.set(note, { osc, gain });
+    const oscillators: OscillatorNodeLike[] = [];
+
+    // Detuned unison of sawtooth oscillators, summed through one mix gain.
+    const unisonMix = ctx.createGain();
+    unisonMix.gain.setValueAtTime(UNISON_MIX_LEVEL, now);
+    unisonMix.connect(filter);
+    for (const cents of UNISON_OFFSETS_CENTS) {
+      const osc = ctx.createOscillator();
+      osc.type = OSC_TYPE;
+      osc.frequency.setValueAtTime(detune(freq, cents), now);
+      osc.connect(unisonMix);
+      osc.start(now);
+      oscillators.push(osc);
+    }
+
+    // Sub-octave sine for body, one octave below the played pitch.
+    const subMix = ctx.createGain();
+    subMix.gain.setValueAtTime(SUB_MIX_LEVEL, now);
+    subMix.connect(filter);
+    const sub = ctx.createOscillator();
+    sub.type = SUB_OSC_TYPE;
+    sub.frequency.setValueAtTime(freq / 2, now);
+    sub.connect(subMix);
+    sub.start(now);
+    oscillators.push(sub);
+
+    this.voices.set(note, { oscillators, gain });
   }
 
   /** Releases `note`'s voice with a short tail. No-op if the note isn't held. */
@@ -190,7 +277,7 @@ export class PreviewSynth {
     voice.gain.gain.cancelScheduledValues(now);
     voice.gain.gain.setValueAtTime(voice.gain.gain.value, now);
     voice.gain.gain.linearRampToValueAtTime(0, endTime);
-    voice.osc.stop(endTime);
+    for (const osc of voice.oscillators) osc.stop(endTime);
   }
 
   /**
