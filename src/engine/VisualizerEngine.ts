@@ -8,6 +8,7 @@ import { noteNumberToName, parseNoteMessage } from './midi';
 import { clampOctaveShift, noteForKey, octaveLabel, octaveShiftForKey } from './virtualKeyboard';
 import type { MidiAccessLike, MidiFactory } from './midiTypes';
 import { defaultMidiFactory } from './webMidiAdapter';
+import { PreviewSynth, type AudioContextFactory } from './previewSynth';
 
 /** Fixed velocity (0–127) every synthetic Virtual Input note carries; see ADR-0005. */
 const VIRTUAL_INPUT_RAW_VELOCITY = 100;
@@ -98,6 +99,8 @@ export interface PersistedStateV1 {
   crystalsRightColor: string;
   /** Whether the Virtual Input's surfaces are live. Octave shift is not persisted. */
   virtualInputEnabled: boolean;
+  /** Whether the Preview Synth sounds Virtual Input notes. Defaults to on when absent (see ADR-0007). */
+  soundEnabled: boolean;
 }
 
 /**
@@ -138,6 +141,8 @@ export interface VisualizerEngineOptions {
   scenes?: Scene[];
   createMidi?: MidiFactory;
   storage?: Storage;
+  /** Injected AudioContext factory for the Preview Synth; defaults to the real browser context. */
+  createAudioContext?: AudioContextFactory;
 }
 
 function defaultParamValues(specs: ParamSpec[]): Record<string, ParamValue> {
@@ -213,6 +218,12 @@ export class VisualizerEngine {
   // the same dispatch core a real Device does.
   private virtualInputEnabledState = false;
   private virtualOctaveShift = 0;
+  // The Preview Synth voices the Virtual Input's surfaces (keyboard + Piano
+  // Preview clicks), hooked at those surfaces rather than the source-agnostic
+  // dispatch core so a real Device never sounds (ADR-0007). Its own enable flag
+  // tracks `soundEnabled && virtualInputEnabled` via syncSynthEnabled().
+  private soundEnabledState = true;
+  private readonly synth: PreviewSynth;
   // Physical key code -> the exact note it triggered, so keyup releases that same
   // note even after an octave shift, and so cleanup releases only virtual notes.
   private readonly virtualHeldKeys = new Map<string, number>();
@@ -269,6 +280,14 @@ export class VisualizerEngine {
     } = this.splitHeight(height));
     this.storage =
       options.storage ?? (typeof window !== 'undefined' ? window.localStorage : undefined);
+
+    // Starts disabled: audio needs both Sound on and the Virtual Input enabled,
+    // and the Virtual Input defaults off. syncSynthEnabled() (from restore and the
+    // toggles) is the single source of the derived enable flag thereafter.
+    this.synth = new PreviewSynth({
+      createAudioContext: options.createAudioContext,
+      enabled: false,
+    });
 
     this.registry = new SceneRegistry(options.scenes ?? []);
     for (const scene of this.registry.list()) {
@@ -420,6 +439,11 @@ export class VisualizerEngine {
     return octaveLabel(this.virtualOctaveShift);
   }
 
+  /** Whether the Preview Synth sounds Virtual Input notes. Audio also requires the Virtual Input on. Default on. */
+  get soundEnabled(): boolean {
+    return this.soundEnabledState;
+  }
+
   /** Bumped on every dispatched note-on/off; sidebar can diff it to flash an activity indicator. */
   get activityTick(): number {
     return this.noteActivityTick;
@@ -541,8 +565,27 @@ export class VisualizerEngine {
     if (enabled === this.virtualInputEnabledState) return;
     this.virtualInputEnabledState = enabled;
     if (!enabled) this.releaseVirtualNotes();
+    this.syncSynthEnabled();
     this.persist();
     this.notify();
+  }
+
+  /**
+   * Toggles the Preview Synth's Sound setting. Audio still only sounds when the
+   * Virtual Input is also enabled. Turning Sound off immediately silences any held
+   * voices; turning it on affects only subsequent notes.
+   */
+  setSoundEnabled(enabled: boolean): void {
+    if (enabled === this.soundEnabledState) return;
+    this.soundEnabledState = enabled;
+    this.syncSynthEnabled();
+    this.persist();
+    this.notify();
+  }
+
+  /** Drives the synth's enable flag from both gates: it sounds only when Sound *and* the Virtual Input are on. */
+  private syncSynthEnabled(): void {
+    this.synth.setEnabled(this.soundEnabledState && this.virtualInputEnabledState);
   }
 
   /** Selects the single Device the engine binds MIDI message handlers to. */
@@ -573,6 +616,7 @@ export class VisualizerEngine {
       crystalsLeftColor: this.crystalsLeftColorState,
       crystalsRightColor: this.crystalsRightColorState,
       virtualInputEnabled: this.virtualInputEnabledState,
+      soundEnabled: this.soundEnabledState,
     };
   }
 
@@ -628,6 +672,12 @@ export class VisualizerEngine {
       this.virtualInputEnabledState = state.virtualInputEnabled;
     }
 
+    // Absent in pre-Preview-Synth snapshots: default to on (no version bump).
+    if (typeof state.soundEnabled === 'boolean') {
+      this.soundEnabledState = state.soundEnabled;
+    }
+    this.syncSynthEnabled();
+
     if (
       typeof state.resolutionPreset === 'string' &&
       state.resolutionPreset in RESOLUTION_PRESETS
@@ -664,6 +714,7 @@ export class VisualizerEngine {
   /** Stops the draw loop and removes the p5 canvas. Call on unmount. */
   destroy(): void {
     this.activeScene?.teardown();
+    this.synth.dispose();
     this.unwireActiveDevice();
     this.unsubscribeDeviceChange?.();
     if (typeof window !== 'undefined') {
@@ -872,6 +923,8 @@ export class VisualizerEngine {
     if (note === null) return;
     this.virtualHeldKeys.set(event.code, note);
     this.dispatchNoteOn(this.makeNoteEvent(note, VIRTUAL_INPUT_RAW_VELOCITY));
+    // Preview Synth hooked at the surface, alongside dispatch — not in the core (ADR-0007).
+    this.synth.noteOn(note);
     event.preventDefault();
   }
 
@@ -882,6 +935,7 @@ export class VisualizerEngine {
     if (note === undefined) return;
     this.virtualHeldKeys.delete(event.code);
     this.dispatchNoteOff(this.makeNoteEvent(note, 0));
+    this.synth.noteOff(note);
   }
 
   /** Resolves the note under the cursor on the Piano Preview, gated by the enable flag + preview visibility. */
@@ -903,9 +957,13 @@ export class VisualizerEngine {
     if (note === this.virtualMouseNote) return;
     if (this.virtualMouseNote !== null) {
       this.dispatchNoteOff(this.makeNoteEvent(this.virtualMouseNote, 0));
+      this.synth.noteOff(this.virtualMouseNote);
     }
     this.virtualMouseNote = note;
-    if (note !== null) this.dispatchNoteOn(this.makeNoteEvent(note, VIRTUAL_INPUT_RAW_VELOCITY));
+    if (note !== null) {
+      this.dispatchNoteOn(this.makeNoteEvent(note, VIRTUAL_INPUT_RAW_VELOCITY));
+      this.synth.noteOn(note);
+    }
   }
 
   /** Releases every Virtual-Input-originated note (keyboard + mouse), leaving Device notes untouched. */
@@ -915,6 +973,9 @@ export class VisualizerEngine {
     }
     this.virtualHeldKeys.clear();
     this.setMouseNote(null);
+    // The key-up loop above bypasses handleKeyUp, so release the synth's voices
+    // directly here — covering window blur, which reaches only this path.
+    this.synth.releaseAll();
   }
 
   private buildContext(elapsed: number, deltaTime: number): SceneContext {

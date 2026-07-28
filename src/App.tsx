@@ -493,6 +493,10 @@ function VirtualInputControl({ engine }: { engine: VisualizerEngine }) {
     (onChange) => engine.subscribe(onChange),
     () => engine.pianoPreviewVisible,
   );
+  const soundEnabled = useSyncExternalStore(
+    (onChange) => engine.subscribe(onChange),
+    () => engine.soundEnabled,
+  );
 
   return (
     <AccordionSection id="input:virtual" title="Virtual Input">
@@ -500,6 +504,11 @@ function VirtualInputControl({ engine }: { engine: VisualizerEngine }) {
         label="Play without a device"
         checked={virtualInputEnabled}
         onChange={(checked) => engine.setVirtualInputEnabled(checked)}
+      />
+      <ToggleField
+        label="Sound"
+        checked={soundEnabled}
+        onChange={(checked) => engine.setSoundEnabled(checked)}
       />
       <div className="virtual-input-legend">
         <p>
