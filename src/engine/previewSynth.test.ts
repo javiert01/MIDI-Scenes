@@ -77,6 +77,11 @@ class FakeAudioContext implements AudioContextLike {
     this.resumeCalls += 1;
     return Promise.resolve();
   }
+  closeCalls = 0;
+  close(): Promise<void> {
+    this.closeCalls += 1;
+    return Promise.resolve();
+  }
 }
 
 /** The per-voice gain nodes are every gain except the first (the shared master gain). */
@@ -241,6 +246,22 @@ describe('PreviewSynth', () => {
     synth.setEnabled(false);
 
     expect(ctx.oscillators.every((o) => o.stopped)).toBe(true);
+  });
+
+  it('dispose() releases held voices and closes the AudioContext', () => {
+    synth.noteOn(60);
+    synth.noteOn(64);
+
+    synth.dispose();
+
+    expect(ctx.oscillators.every((o) => o.stopped)).toBe(true);
+    expect(ctx.closeCalls).toBe(1);
+  });
+
+  it('dispose() is a no-op before any note created a context', () => {
+    synth.dispose();
+    expect(factoryCalls).toBe(0);
+    expect(ctx.closeCalls).toBe(0);
   });
 
   it('uses a single conservative master gain with headroom (< 1) so chords do not clip', () => {

@@ -46,6 +46,7 @@ export interface AudioContextLike {
   createOscillator(): OscillatorNodeLike;
   createGain(): GainNodeLike;
   resume?(): Promise<void>;
+  close?(): Promise<void>;
 }
 
 export type AudioContextFactory = () => AudioContextLike;
@@ -167,6 +168,18 @@ export class PreviewSynth {
   releaseAll(): void {
     for (const voice of this.voices.values()) this.releaseVoice(voice);
     this.voices.clear();
+  }
+
+  /**
+   * Tears the synth down on engine destroy: releases every held voice and closes
+   * the AudioContext (if the platform exposes `close`), so no context leaks across
+   * an unmount/remount. Idempotent — a no-op before any context was created.
+   */
+  dispose(): void {
+    this.releaseAll();
+    void this.ctx?.close?.();
+    this.ctx = null;
+    this.master = null;
   }
 
   /** Ramps a voice down to silence over the release tail, then stops its oscillator. */

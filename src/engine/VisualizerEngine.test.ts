@@ -4,6 +4,13 @@ import { CRYSTAL_COLORS } from '@/engine/crystals';
 import type { P5Factory, P5Like } from '@/engine/types';
 import type { ParamSpec, Scene, SceneContext, NoteEvent } from '@/engine/scene';
 import type { MidiAccessLike, MidiInputLike, MidiMessageHandler } from '@/engine/midiTypes';
+import type {
+  AudioContextLike,
+  AudioNodeLike,
+  AudioParamLike,
+  GainNodeLike,
+  OscillatorNodeLike,
+} from '@/engine/previewSynth';
 
 interface RecordedCall {
   name: string;
@@ -1083,6 +1090,7 @@ describe('VisualizerEngine session persistence (T11)', () => {
       crystalsLeftColor: '#aa55ff',
       crystalsRightColor: '#ff5a14',
       virtualInputEnabled: false,
+      soundEnabled: true,
     });
   });
 
@@ -2165,5 +2173,289 @@ describe('VisualizerEngine Virtual Input (T19)', () => {
     engines.push(engine);
 
     expect(engine.virtualInputEnabled).toBe(false);
+  });
+});
+
+// The Preview Synth (see ADR-0007) makes Virtual Input notes audible. These spy
+// nodes let a test assert that a note created (or stopped) a voice, without any
+// real Web Audio — mirroring the fakes in previewSynth.test.ts.
+class SpyAudioParam implements AudioParamLike {
+  value = 0;
+  setValueAtTime(value: number): void {
+    this.value = value;
+  }
+  linearRampToValueAtTime(): void {}
+  cancelScheduledValues(): void {}
+}
+
+class SpyOscillator implements OscillatorNodeLike {
+  type: OscillatorType = 'sine';
+  frequency = new SpyAudioParam();
+  started = false;
+  stopped = false;
+  connect(): void {}
+  start(): void {
+    this.started = true;
+  }
+  stop(): void {
+    this.stopped = true;
+  }
+}
+
+class SpyGain implements GainNodeLike {
+  gain = new SpyAudioParam();
+  connect(): void {}
+}
+
+class SpyAudioContext implements AudioContextLike {
+  currentTime = 0;
+  state: AudioContextState = 'running';
+  destination: AudioNodeLike = { connect() {} };
+  // One entry per sounded voice (the master gain is a SpyGain but not an oscillator).
+  oscillators: SpyOscillator[] = [];
+  closed = false;
+  createOscillator(): OscillatorNodeLike {
+    const osc = new SpyOscillator();
+    this.oscillators.push(osc);
+    return osc;
+  }
+  createGain(): GainNodeLike {
+    return new SpyGain();
+  }
+  resume(): Promise<void> {
+    return Promise.resolve();
+  }
+  close(): Promise<void> {
+    this.closed = true;
+    return Promise.resolve();
+  }
+}
+
+describe('VisualizerEngine Preview Synth wiring (T25)', () => {
+  let engines: VisualizerEngine[] = [];
+
+  // A single shared SpyAudioContext per engine, so a test can inspect the voices
+  // its notes created. The factory returns the same instance on every call.
+  function setUpEngine(scenes: Scene[] = []) {
+    const { factory, getInstance } = stubP5Factory();
+    const container = document.createElement('div');
+    const audio = new SpyAudioContext();
+    const engine = new VisualizerEngine(container, {
+      createP5: factory,
+      storage: new FakeStorage(),
+      createAudioContext: () => audio,
+      scenes,
+    });
+    engines.push(engine);
+    return { engine, stub: getInstance(), audio };
+  }
+
+  function keydown(code: string) {
+    window.dispatchEvent(new KeyboardEvent('keydown', { code, bubbles: true, cancelable: true }));
+  }
+
+  function keyup(code: string) {
+    window.dispatchEvent(new KeyboardEvent('keyup', { code, bubbles: true }));
+  }
+
+  afterEach(() => {
+    for (const engine of engines) engine.destroy();
+    engines = [];
+  });
+
+  it('defaults Sound to on', () => {
+    const { engine } = setUpEngine();
+    expect(engine.soundEnabled).toBe(true);
+  });
+
+  it('sounds a synth voice for a computer key when both Virtual Input and Sound are on', () => {
+    const { engine, audio } = setUpEngine();
+    engine.setVirtualInputEnabled(true);
+
+    keydown('KeyA');
+
+    expect(audio.oscillators).toHaveLength(1);
+    expect(audio.oscillators[0].started).toBe(true);
+  });
+
+  it('sounds a synth voice for a Piano Preview click', () => {
+    const { engine, stub, audio } = setUpEngine();
+    engine.setVirtualInputEnabled(true);
+    engine.setKeyboardBand('piano');
+
+    stub.mouseX = 5;
+    stub.mouseY = engine.visualizationHeight + engine.chromaKeyHeight - 5;
+    stub.mousePressed?.();
+
+    expect(audio.oscillators).toHaveLength(1);
+    expect(audio.oscillators[0].started).toBe(true);
+  });
+
+  it('glissandos the synth voice on drag: releases the old voice and sounds a new one', () => {
+    const { engine, stub, audio } = setUpEngine();
+    engine.setVirtualInputEnabled(true);
+    engine.setKeyboardBand('piano');
+    const bandY = engine.visualizationHeight + engine.chromaKeyHeight - 5;
+
+    stub.mouseX = 5;
+    stub.mouseY = bandY;
+    stub.mousePressed?.();
+
+    // Drag two white keys right, onto a different note.
+    stub.mouseX = 5 + Math.floor((2 * engine.width) / 35);
+    stub.mouseDragged?.();
+
+    expect(audio.oscillators).toHaveLength(2); // first voice + the dragged-to voice
+    expect(audio.oscillators[0].stopped).toBe(true); // old voice released
+    expect(audio.oscillators[1].started).toBe(true); // new voice sounding
+  });
+
+  it('stays silent for a real Device note', async () => {
+    const device: MidiInputLike = { id: 'dev-a', name: 'Keyboard A' };
+    const { factory, getInstance } = stubP5Factory();
+    const container = document.createElement('div');
+    const midi = new FakeMidiAccess([device]);
+    const audio = new SpyAudioContext();
+    const engine = new VisualizerEngine(container, {
+      createP5: factory,
+      createMidi: fakeMidiFactory(midi),
+      storage: new FakeStorage(),
+      createAudioContext: () => audio,
+    });
+    engines.push(engine);
+    await flushMicrotasks();
+    getInstance();
+    // Sound on and the Virtual Input enabled — yet a Device is not a Virtual surface.
+    engine.setVirtualInputEnabled(true);
+
+    midi.emit('dev-a', [0x90, 60, 100]);
+
+    expect(audio.oscillators).toHaveLength(0);
+  });
+
+  it('stays silent when Sound is off, even with the Virtual Input on (gating: both required)', () => {
+    const { engine, audio } = setUpEngine();
+    engine.setVirtualInputEnabled(true);
+    engine.setSoundEnabled(false);
+
+    keydown('KeyA');
+
+    expect(audio.oscillators).toHaveLength(0);
+  });
+
+  it('immediately silences held voices when Sound is turned off', () => {
+    const { engine, audio } = setUpEngine();
+    engine.setVirtualInputEnabled(true);
+    keydown('KeyA');
+    expect(audio.oscillators[0].stopped).toBe(false);
+
+    engine.setSoundEnabled(false);
+
+    expect(audio.oscillators[0].stopped).toBe(true);
+  });
+
+  it('turning Sound on affects only subsequent notes, not a note held while it was off', () => {
+    const { engine, audio } = setUpEngine();
+    engine.setVirtualInputEnabled(true);
+    engine.setSoundEnabled(false);
+    keydown('KeyA'); // held while silent — no voice
+
+    engine.setSoundEnabled(true);
+    expect(audio.oscillators).toHaveLength(0); // the held key does not retroactively sound
+
+    keydown('KeyS'); // a subsequent note does
+    expect(audio.oscillators).toHaveLength(1);
+  });
+
+  it('releases sounding voices on keyup', () => {
+    const { engine, audio } = setUpEngine();
+    engine.setVirtualInputEnabled(true);
+    keydown('KeyA');
+
+    keyup('KeyA');
+
+    expect(audio.oscillators[0].stopped).toBe(true);
+  });
+
+  it('releases sounding voices on window blur', () => {
+    const { engine, audio } = setUpEngine();
+    engine.setVirtualInputEnabled(true);
+    keydown('KeyA');
+
+    window.dispatchEvent(new Event('blur'));
+
+    expect(audio.oscillators[0].stopped).toBe(true);
+  });
+
+  it('releases a clicked voice on mouseup', () => {
+    const { engine, stub, audio } = setUpEngine();
+    engine.setVirtualInputEnabled(true);
+    engine.setKeyboardBand('piano');
+    stub.mouseX = 5;
+    stub.mouseY = engine.visualizationHeight + engine.chromaKeyHeight - 5;
+    stub.mousePressed?.();
+
+    window.dispatchEvent(new MouseEvent('mouseup'));
+
+    expect(audio.oscillators[0].stopped).toBe(true);
+  });
+
+  it('releases sounding voices when the Virtual Input is disabled', () => {
+    const { engine, audio } = setUpEngine();
+    engine.setVirtualInputEnabled(true);
+    keydown('KeyA');
+
+    engine.setVirtualInputEnabled(false);
+
+    expect(audio.oscillators[0].stopped).toBe(true);
+  });
+
+  it('releases voices and closes the AudioContext on destroy', () => {
+    const { engine, audio } = setUpEngine();
+    engine.setVirtualInputEnabled(true);
+    keydown('KeyA');
+
+    engine.destroy();
+
+    expect(audio.oscillators[0].stopped).toBe(true);
+    expect(audio.closed).toBe(true);
+  });
+
+  it('persists soundEnabled across serialize()/restore()', () => {
+    const { engine: source } = setUpEngine();
+    source.setSoundEnabled(false);
+    const snapshot = source.serialize();
+    expect(snapshot.soundEnabled).toBe(false);
+
+    const { engine: target } = setUpEngine();
+    target.restore(snapshot);
+
+    expect(target.soundEnabled).toBe(false);
+  });
+
+  it('defaults soundEnabled to on when an older snapshot lacks the field', () => {
+    const { factory } = stubP5Factory();
+    const container = document.createElement('div');
+    const storage = new FakeStorage();
+    storage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        version: 1,
+        activeSceneId: null,
+        paramValues: {},
+        deviceName: null,
+        resolutionPreset: '1600x800',
+        virtualInputEnabled: true,
+      }),
+    );
+
+    const engine = new VisualizerEngine(container, {
+      createP5: factory,
+      storage,
+      createAudioContext: () => new SpyAudioContext(),
+    });
+    engines.push(engine);
+
+    expect(engine.soundEnabled).toBe(true);
   });
 });
