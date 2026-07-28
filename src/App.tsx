@@ -8,6 +8,7 @@ import {
   useSyncExternalStore,
 } from 'react';
 import type { ReactNode, RefObject } from 'react';
+import { Analytics } from '@vercel/analytics/react';
 import { VisualizerEngine, type KeyboardBand } from '@/engine/VisualizerEngine';
 import { createDefaultScenes } from '@/scenes';
 import type { ParamSpec, ParamValue } from '@/engine/scene';
@@ -49,41 +50,44 @@ function App() {
   }, [presentMode]);
 
   return (
-    <div className="app-shell">
-      {engine && !presentMode && sidebarOpen && (
-        <aside className="sidebar">
-          <SidebarHeader
-            engine={engine}
-            onCollapse={() => setSidebarOpen(false)}
-            onPresent={() => setPresentMode(true)}
-          />
-          <ExpansionProvider>
-            <div className="sidebar-body">
-              <AccordionGroup id="scene" title="Scene">
-                <SceneSwitcher engine={engine} />
-                <ParamControls engine={engine} />
-              </AccordionGroup>
-              <AccordionGroup id="input" title="Input">
-                <DevicePicker engine={engine} />
-                <VirtualInputControl engine={engine} />
-              </AccordionGroup>
-              <AccordionGroup id="overlays" title="Overlays">
-                <CrystalsControl engine={engine} />
-                <KeyboardBandControl engine={engine} />
-              </AccordionGroup>
-              <ResolutionPicker engine={engine} />
-            </div>
-          </ExpansionProvider>
-        </aside>
-      )}
-      <div className="canvas-stage">
-        <CanvasContainer containerRef={containerRef} engine={engine} />
-        {presentMode && <PresentModeExit onExit={() => setPresentMode(false)} />}
+    <>
+      <div className="app-shell">
+        {engine && !presentMode && sidebarOpen && (
+          <aside className="sidebar">
+            <SidebarHeader
+              engine={engine}
+              onCollapse={() => setSidebarOpen(false)}
+              onPresent={() => setPresentMode(true)}
+            />
+            <ExpansionProvider>
+              <div className="sidebar-body">
+                <AccordionGroup id="scene" title="Scene">
+                  <SceneSwitcher engine={engine} />
+                  <ParamControls engine={engine} />
+                </AccordionGroup>
+                <AccordionGroup id="input" title="Input">
+                  <DevicePicker engine={engine} />
+                  <VirtualInputControl engine={engine} />
+                </AccordionGroup>
+                <AccordionGroup id="overlays" title="Overlays">
+                  <CrystalsControl engine={engine} />
+                  <KeyboardBandControl engine={engine} />
+                </AccordionGroup>
+                <ResolutionPicker engine={engine} />
+              </div>
+            </ExpansionProvider>
+          </aside>
+        )}
+        <div className="canvas-stage">
+          <CanvasContainer containerRef={containerRef} engine={engine} />
+          {presentMode && <PresentModeExit onExit={() => setPresentMode(false)} />}
+        </div>
+        {engine && !presentMode && !sidebarOpen && (
+          <SidebarToggle open={false} onToggle={() => setSidebarOpen(true)} />
+        )}
       </div>
-      {engine && !presentMode && !sidebarOpen && (
-        <SidebarToggle open={false} onToggle={() => setSidebarOpen(true)} />
-      )}
-    </div>
+      <Analytics />
+    </>
   );
 }
 
