@@ -83,6 +83,19 @@ _Avoid_: Device (a Virtual Input is never listed or selected), Virtual Device,
 Piano (the Piano Preview is a surface the Virtual Input is played *through*, not an
 instrument).
 
+**Preview Synth**:
+The engine-owned synthesizer that makes Virtual Input notes audible — a stand-in
+instrument, the audible counterpart to the Piano Preview's visual stand-in. It
+sounds notes from the Virtual Input *only* (its computer-keyboard surface and its
+Piano Preview click surface); a real Device stays silent, being its own instrument.
+Native Web Audio, polyphonic (one voice per held note), a clean synth tone with a
+short release tail. Gated by its own **Sound** toggle (default on): audio sounds
+only when the Virtual Input is enabled *and* Sound is on. Not an Overlay — it is
+non-visual, so it draws nothing in the Keyboard band.
+_Avoid_: Overlay (a Preview Synth renders no pixels), Piano (a synth tone, not a
+real piano; it stands in like the Piano Preview does), Instrument (a real Device is
+the instrument; this only sounds the synthetic Virtual Input).
+
 **Chroma Key area**:
 The green-filled bottom third of the canvas, kept for compositing piano-hands
 footage under the visualization in a video editor. An Overlay filling the Keyboard
