@@ -120,6 +120,23 @@ function resolveKeyboardBand(state: Partial<PersistedStateV1> & LegacyBandFields
   return 'none';
 }
 
+/**
+ * Resolves the keyboard band from a persisted snapshot. A modern snapshot carries
+ * `keyboardBand` directly; a legacy one carries the old independent `chromaKeyVisible`
+ * / `pianoPreviewVisible` booleans (each defaulting to on, as they did then), which
+ * migrate here — a "both on" legacy state resolves to Piano Preview (it wins the band).
+ */
+function resolveKeyboardBand(state: Partial<PersistedStateV1> & LegacyBandFields): KeyboardBand {
+  if (typeof state.keyboardBand === 'string' && KEYBOARD_BANDS.includes(state.keyboardBand)) {
+    return state.keyboardBand;
+  }
+  const piano = typeof state.pianoPreviewVisible === 'boolean' ? state.pianoPreviewVisible : true;
+  const chroma = typeof state.chromaKeyVisible === 'boolean' ? state.chromaKeyVisible : true;
+  if (piano) return 'piano';
+  if (chroma) return 'chroma';
+  return 'none';
+}
+
 export const defaultP5Factory: P5Factory = (sketch, node) =>
   new p5(sketch, node) as unknown as P5Like;
 
