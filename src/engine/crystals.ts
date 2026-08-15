@@ -4,7 +4,8 @@ import { keyColumnX, whiteKeyWidth } from './keyboardGeometry';
 export type RgbColor = readonly [number, number, number];
 
 /** A note-reactive Overlay shaft: spawns at a key column, grows while held, then falls
- * until the visualization floor clips it away. */
+ * until the visualization floor clips it away — where Dust will take over (see
+ * `CONTEXT.md`, which defines a Crystal by the finished model, Dust included). */
 export interface Crystal {
   x: number;
   y: number;

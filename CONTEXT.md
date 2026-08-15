@@ -27,21 +27,30 @@ and the Chroma Key green share the Keyboard band and so are mutually exclusive.
 _Avoid_: Scene (an Overlay is never selected from the Scene list), layer (too vague).
 
 **Crystal**:
-A note-reactive Overlay: a shaft that spawns at a pressed key's column, grows while
-the key is held, then falls and dissolves into Dust — staying within the
-visualization area, never entering the Chroma Key band. The engine owns every
-Crystal's state so they appear on every Scene and on No Scene; a Scene may choose
-*where* in its own draw order to render them (Underwater draws them behind its
-creatures), otherwise the engine draws them on top.
+A note-reactive Overlay: a luminous glass rod that spawns at a pressed key's column,
+grows while the key is held, then falls and dissolves into Dust — staying within the
+visualization area, never entering the Chroma Key band. Its coloured body is dim
+enough for the Scene to show through, edged by a Rim and wrapped in a glow that
+deliberately spills past its own column, so a chord blooms as one mass of light
+rather than separate bars. The engine owns every Crystal's state so they appear on
+every Scene and on No Scene; a Scene may choose *where* in its own draw order to
+render them (Underwater draws them behind its creatures), otherwise the engine draws
+them on top.
 _Avoid_: Animation (a Crystal is no longer scoped to one Scene), particle (what a
-Crystal sheds is Dust).
+Crystal sheds is Dust), bar (a Crystal is a rounded, glowing rod, not a flat block).
+
+**Rim**:
+The hot, near-white edge tracing a Crystal's outline — the Crystal's own colour
+carried most of the way to white, and the brightest thing it shows.
+_Avoid_: Edge, outline, border, stroke (a stroke is how a Rim is drawn, not what it
+is), highlight.
 
 **Dust**:
 The fine, luminous flecks a Crystal sheds as it dissolves at the visualization
-area's bottom edge, each rising along a sine path and fading out mid-air. Part of
-the Crystals Overlay rather than an Overlay in its own right — Dust appears, hides
-and dims with the Crystals, so it has no control, no draw seam and no place in the
-render order of its own.
+area's bottom edge, born from its Rim and carrying that colour, each rising along a
+sine path and fading out mid-air. Part of the Crystals Overlay rather than an
+Overlay in its own right — Dust appears, hides and dims with the Crystals, so it has
+no control, no draw seam and no place in the render order of its own.
 _Avoid_: Particle, mote, shard, spark.
 
 **Piano Preview**:
