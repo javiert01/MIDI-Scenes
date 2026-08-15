@@ -18,6 +18,9 @@ interface RecordedCall {
   args: unknown[];
 }
 
+/** Rects one Crystal draws for its glass-tube layers: halo, mid glow, body (the rim is the body's stroke). */
+const SHAFT_LAYERS_PER_CRYSTAL = 3;
+
 class StubP5 implements P5Like {
   width = 0;
   height = 0;
@@ -1367,8 +1370,11 @@ describe('VisualizerEngine Crystal Overlay (T15)', () => {
 
   // Crystal shafts are narrow (a fraction of a key column); the only other rect
   // drawn is the full-width Chroma Key band, so a small width isolates crystals.
-  function crystalRects(stub: StubP5): RecordedCall[] {
-    return stub.calls.filter((c) => c.name === 'rect' && (c.args as number[])[2] < 100);
+  // Each Crystal draws its glass-tube layers (halo, mid glow, body) as separate
+  // rects, so counts here are in crystals, not rects.
+  function drawnCrystals(stub: StubP5): number {
+    const rects = stub.calls.filter((c) => c.name === 'rect' && (c.args as number[])[2] < 100);
+    return rects.length / SHAFT_LAYERS_PER_CRYSTAL;
   }
 
   async function setUpEngine(scenes: Scene[]) {
@@ -1395,7 +1401,7 @@ describe('VisualizerEngine Crystal Overlay (T15)', () => {
     stub.calls = [];
     stub.draw?.();
 
-    expect(crystalRects(stub).length).toBe(1);
+    expect(drawnCrystals(stub)).toBe(1);
   });
 
   it('spawns crystals independently of a Scene that ignores notes, drawing them on top', async () => {
@@ -1407,7 +1413,7 @@ describe('VisualizerEngine Crystal Overlay (T15)', () => {
     stub.draw?.();
 
     // The Scene never called ctx.drawCrystals(), so the engine draws the crystal itself.
-    expect(crystalRects(stub).length).toBe(1);
+    expect(drawnCrystals(stub)).toBe(1);
   });
 
   it('lets the Active Scene place crystals via ctx.drawCrystals() without the engine drawing them again', async () => {
@@ -1420,7 +1426,7 @@ describe('VisualizerEngine Crystal Overlay (T15)', () => {
     stub.draw?.();
 
     // Drawn exactly once — by the Scene — not a second time by the engine default.
-    expect(crystalRects(stub).length).toBe(1);
+    expect(drawnCrystals(stub)).toBe(1);
   });
 
   it('exposes the live crystals and a drawCrystals seam on SceneContext', async () => {
@@ -1445,7 +1451,7 @@ describe('VisualizerEngine Crystal Overlay (T15)', () => {
     stub.calls = [];
     stub.draw?.();
 
-    expect(crystalRects(stub).length).toBe(1);
+    expect(drawnCrystals(stub)).toBe(1);
   });
 
   it('clears crystals when the resolution preset changes, since columns are width-relative', async () => {
@@ -1456,7 +1462,7 @@ describe('VisualizerEngine Crystal Overlay (T15)', () => {
     stub.calls = [];
     stub.draw?.();
 
-    expect(crystalRects(stub).length).toBe(0);
+    expect(drawnCrystals(stub)).toBe(0);
   });
 });
 
@@ -1465,8 +1471,11 @@ describe('VisualizerEngine Crystals sidebar controls (T17)', () => {
 
   // Crystal shafts are narrow (a fraction of a key column); the only other rect
   // drawn is the full-width Chroma Key band, so a small width isolates crystals.
-  function crystalRects(stub: StubP5): RecordedCall[] {
-    return stub.calls.filter((c) => c.name === 'rect' && (c.args as number[])[2] < 100);
+  // Each Crystal draws its glass-tube layers (halo, mid glow, body) as separate
+  // rects, so counts here are in crystals, not rects.
+  function drawnCrystals(stub: StubP5): number {
+    const rects = stub.calls.filter((c) => c.name === 'rect' && (c.args as number[])[2] < 100);
+    return rects.length / SHAFT_LAYERS_PER_CRYSTAL;
   }
 
   async function setUpEngine(scenes: Scene[] = []) {
@@ -1501,7 +1510,7 @@ describe('VisualizerEngine Crystals sidebar controls (T17)', () => {
     stub.calls = [];
     stub.draw?.();
 
-    expect(crystalRects(stub).length).toBe(0);
+    expect(drawnCrystals(stub)).toBe(0);
   });
 
   it('setCrystalsVisible(true) restores crystal rendering', async () => {
@@ -1513,7 +1522,7 @@ describe('VisualizerEngine Crystals sidebar controls (T17)', () => {
     stub.calls = [];
     stub.draw?.();
 
-    expect(crystalRects(stub).length).toBe(1);
+    expect(drawnCrystals(stub)).toBe(1);
   });
 
   it('setCrystalsVisible(false) also suppresses a Scene that draws crystals itself via ctx.drawCrystals()', async () => {
@@ -1526,19 +1535,30 @@ describe('VisualizerEngine Crystals sidebar controls (T17)', () => {
     stub.calls = [];
     stub.draw?.();
 
-    expect(crystalRects(stub).length).toBe(0);
+    expect(drawnCrystals(stub)).toBe(0);
   });
 
-  it('setCrystalsOpacity scales the drawn alpha', async () => {
+  it('setCrystalsOpacity scales the drawn alpha of every layer', async () => {
     const { engine, midi, stub } = await setUpEngine();
+    // Every colour a Crystal sets: the fill of each layer plus the rim's stroke.
+    const layerAlphas = () =>
+      stub.calls
+        .filter((c) => (c.name === 'fill' || c.name === 'stroke') && c.args.length === 4)
+        .map((c) => (c.args as number[])[3]);
 
-    engine.setCrystalsOpacity(0.5);
     midi.emit('dev-a', [0x90, 60, 100]);
     stub.calls = [];
     stub.draw?.();
+    const fullAlphas = layerAlphas();
 
-    const fillCall = stub.calls.find((c) => c.name === 'fill' && (c.args as number[]).length === 4);
-    expect((fillCall!.args as number[])[3]).toBeCloseTo(150 * 0.5);
+    engine.setCrystalsOpacity(0.5);
+    stub.calls = [];
+    stub.draw?.();
+    const halfAlphas = layerAlphas();
+
+    expect(fullAlphas.length).toBe(SHAFT_LAYERS_PER_CRYSTAL + 1); // + the rim
+    expect(halfAlphas).toHaveLength(fullAlphas.length);
+    halfAlphas.forEach((alpha, i) => expect(alpha).toBeCloseTo(fullAlphas[i] * 0.5));
   });
 
   it('setCrystalsOpacity clamps to [0, 1]', async () => {
@@ -1731,8 +1751,9 @@ describe('VisualizerEngine Piano Preview Overlay (T18)', () => {
 describe('VisualizerEngine No Scene (T16)', () => {
   const deviceA: MidiInputLike = { id: 'dev-a', name: 'Keyboard A' };
 
-  function crystalRects(stub: StubP5): RecordedCall[] {
-    return stub.calls.filter((c) => c.name === 'rect' && (c.args as number[])[2] < 100);
+  function drawnCrystals(stub: StubP5): number {
+    const rects = stub.calls.filter((c) => c.name === 'rect' && (c.args as number[])[2] < 100);
+    return rects.length / SHAFT_LAYERS_PER_CRYSTAL;
   }
 
   it('lists a "No Scene" entry ahead of the registered Scenes', () => {
@@ -1815,7 +1836,7 @@ describe('VisualizerEngine No Scene (T16)', () => {
     stub.draw?.();
 
     expect(stub.calls.some((c) => c.name === 'background')).toBe(true);
-    expect(crystalRects(stub).length).toBe(1);
+    expect(drawnCrystals(stub)).toBe(1);
   });
 
   it('persists No Scene as a null activeSceneId', () => {

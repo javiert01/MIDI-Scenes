@@ -17,7 +17,8 @@ export interface P5Like {
   strokeWeight(weight: number): void;
   background(...args: number[]): void;
   fill(...args: number[]): void;
-  rect(x: number, y: number, w: number, h: number): void;
+  /** p5's `rect`, including its optional corner radii (one for every corner, or one per corner). */
+  rect(x: number, y: number, w: number, h: number, ...radii: number[]): void;
   line(x1: number, y1: number, x2: number, y2: number): void;
   ellipse(x: number, y: number, w: number, h: number): void;
   triangle(x1: number, y1: number, x2: number, y2: number, x3: number, y3: number): void;
