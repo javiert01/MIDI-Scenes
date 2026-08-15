@@ -1014,8 +1014,9 @@ export class VisualizerEngine {
     }
 
     // Crystals advance every frame, independent of whether a Scene is active,
-    // so the Overlay keeps living on No Scene.
-    this.crystals.update(this.visualizationHeight);
+    // so the Overlay keeps living on No Scene. Visibility goes in because the
+    // Overlay's own Dust must not fly on unseen while it is toggled off.
+    this.crystals.update(this.visualizationHeight, this.crystalsVisibleState);
     this.crystalsDrawnThisFrame = false;
 
     if (this.activeScene) {

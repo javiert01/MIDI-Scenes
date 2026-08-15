@@ -154,8 +154,6 @@ export class CrystalField {
   private readonly crystals: Crystal[] = spawnPool();
   /** The Dust these shafts shed at the floor — private, and drawn in this same layer (ADR-0008). */
   private readonly dust = new DustField();
-  /** Whether `draw` ran since the last `update`; a frame without one means the Overlay is hidden. */
-  private drawnSinceUpdate = true;
   /** Which pooled crystal is growing for each held note, keyed by MIDI note id. */
   private readonly noteCrystals = new Map<number, Crystal>();
   /** User-customizable left/right colors — new noteOns pick from these; defaults to `CRYSTAL_COLORS`. */
@@ -199,17 +197,13 @@ export class CrystalField {
    * Advances every active crystal one frame within a `visHeight`-tall
    * visualization area, and with it the Dust the floor shakes loose.
    *
-   * Pairs with `draw`: the caller is expected to alternate the two, and a frame
-   * that went undrawn is how this layer learns the Overlay is hidden.
+   * `visible` is the Crystals Overlay's own visibility. Shafts keep falling
+   * either way, but Dust neither flies nor piles up unseen: hiding the Overlay
+   * clears what was airborne, so it can never reappear mid-flight later.
    */
-  update(visHeight: number): void {
-    // A frame that went undrawn means the Overlay is hidden. Dust neither flies
-    // nor accumulates unseen, so it clears and stops shedding — the Overlay's
-    // visibility, like its opacity and z-order, is inherited rather than told.
-    const hidden = !this.drawnSinceUpdate;
-    this.drawnSinceUpdate = false;
-    if (hidden) this.dust.clear();
-    else this.dust.update();
+  update(visHeight: number, visible = true): void {
+    if (visible) this.dust.update();
+    else this.dust.clear();
 
     for (const crystal of this.crystals) {
       if (!crystal.active) continue;
@@ -228,7 +222,7 @@ export class CrystalField {
       // Deactivate the moment the shaft's top reaches the band edge, so it is
       // gone before any part could render inside the Chroma Key band.
       if (crystal.y >= visHeight) crystal.active = false;
-      if (hidden) continue; // no Dust piles up behind a hidden Overlay
+      if (!visible) continue;
       // Whatever the floor ate this frame turns into Dust — so a long-held
       // shaft streams for longer and a staccato tap gives a small puff, with no
       // second notion of note length to keep in step.
@@ -258,10 +252,9 @@ export class CrystalField {
    * Draws every active crystal as a luminous glass tube, plus the Dust they have
    * shed, clipping everything so none of it spills into the Chroma Key band.
    * `opacity` (0-1) scales every layer's alpha — the sidebar's global Crystals
-   * opacity control. Also marks the Overlay as visible this frame (see `update`).
+   * opacity control.
    */
   draw(p: P5Like, visHeight: number, opacity = 1): void {
-    this.drawnSinceUpdate = true;
     let drewAny = false;
     for (const crystal of this.crystals) {
       if (!crystal.active) continue;

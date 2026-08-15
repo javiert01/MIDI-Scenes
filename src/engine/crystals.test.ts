@@ -400,7 +400,7 @@ describe('CrystalField shedding Dust', () => {
   function shaftAtFloor(holdFrames = 20) {
     const field = new CrystalField();
     field.noteOn(36, WIDTH);
-    run(field, holdFrames);
+    for (let i = 0; i < holdFrames; i++) field.update(VIS_HEIGHT);
     field.noteOff(36);
     const crystal = activeCrystals(field)[0];
     crystal.y = VIS_HEIGHT - crystal.length;
@@ -475,17 +475,19 @@ describe('CrystalField shedding Dust', () => {
       .map((c) => c.args[3]);
   }
 
-  it('draws no Dust while the Overlay is hidden, and clears what was airborne when it hides', () => {
+  it('clears airborne Dust the moment the Overlay is hidden, and sheds none while it stays hidden', () => {
     const { field } = shaftAtFloor();
-    run(field, 5); // Dust is airborne and drawing
+    const airborne = ellipses(run(field, 5)).length; // a population built up over 5 frames
+    expect(airborne).toBeGreaterThan(0);
 
-    // Hidden: the engine keeps updating the Overlay but stops calling draw.
-    for (let i = 0; i < 3; i++) field.update(VIS_HEIGHT);
-    const p = new RecordingP5();
-    field.draw(p as unknown as P5Like, VIS_HEIGHT);
+    // One hidden frame is enough: the shaft keeps falling, the Dust does not.
+    field.update(VIS_HEIGHT, false);
+    const whileHidden = new RecordingP5();
+    field.draw(whileHidden as unknown as P5Like, VIS_HEIGHT);
+    expect(ellipses(whileHidden)).toHaveLength(0);
 
-    // Shown again, the flight does not resume where it left off.
-    expect(ellipses(p)).toHaveLength(0);
+    // Shown again, it starts over rather than resuming that population.
+    expect(ellipses(run(field, 1)).length).toBeLessThan(airborne);
   });
 
   it('clears in-flight Dust on reset, as it clears the shafts', () => {
