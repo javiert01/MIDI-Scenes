@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CRYSTAL_COLORS, CrystalField, rimColor } from '@/engine/crystals';
 import { keyColumnX } from '@/engine/keyboardGeometry';
 import type { P5Like } from '@/engine/types';
@@ -18,6 +18,7 @@ class RecordingP5 implements Partial<P5Like> {
   strokeWeight = (...args: number[]) => this.calls.push({ name: 'strokeWeight', args });
   fill = (...args: number[]) => this.calls.push({ name: 'fill', args });
   rect = (...args: number[]) => this.calls.push({ name: 'rect', args });
+  ellipse = (...args: number[]) => this.calls.push({ name: 'ellipse', args });
 }
 
 function activeCrystals(field: CrystalField) {
@@ -375,5 +376,126 @@ describe('CrystalField', () => {
     field.reset();
 
     expect(activeCrystals(field)).toHaveLength(0);
+  });
+});
+
+/**
+ * Dust seen from its parent's seam: that the Crystal layer sheds it on
+ * consumption and that it inherits the Overlay's visibility, opacity and reset.
+ * The flecks' own physics is `crystalDust.test.ts`'s job, asserted nowhere here.
+ */
+describe('CrystalField shedding Dust', () => {
+  /** Runs `frames` of the engine's update-then-draw cycle, returning the last frame's calls. */
+  function run(field: CrystalField, frames: number, opacity?: number) {
+    let p = new RecordingP5();
+    for (let i = 0; i < frames; i++) {
+      field.update(VIS_HEIGHT);
+      p = new RecordingP5();
+      field.draw(p as unknown as P5Like, VIS_HEIGHT, opacity);
+    }
+    return p;
+  }
+
+  /** A released shaft grown over `holdFrames`, parked with its tip just touching the floor. */
+  function shaftAtFloor(holdFrames = 20) {
+    const field = new CrystalField();
+    field.noteOn(36, WIDTH);
+    run(field, holdFrames);
+    field.noteOff(36);
+    const crystal = activeCrystals(field)[0];
+    crystal.y = VIS_HEIGHT - crystal.length;
+    return { field, crystal };
+  }
+
+  function ellipses(p: RecordingP5): number[][] {
+    return p.calls.filter((c) => c.name === 'ellipse').map((c) => c.args);
+  }
+
+  /**
+   * Every fleck the field sheds over a whole fall, counted as live-fleck-frames
+   * — with a pinned lifespan that is a fixed multiple of the number born, so it
+   * measures total emission without reaching inside the Dust module.
+   */
+  function totalDust(field: CrystalField): number {
+    let total = 0;
+    for (let i = 0; i < 600; i++) total += ellipses(run(field, 1)).length;
+    return total;
+  }
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it('sheds Dust as the visualization floor consumes a released shaft', () => {
+    const { field } = shaftAtFloor();
+
+    const p = run(field, 5);
+
+    expect(ellipses(p).length).toBeGreaterThan(0);
+  });
+
+  it('sheds Dust in proportion to the shaft consumed — a long note streams, a tap puffs', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.5); // one lifespan for every fleck
+
+    // Four times the hold is four times the shaft, so four times the Dust.
+    const tap = totalDust(shaftAtFloor(5).field);
+    const held = totalDust(shaftAtFloor(20).field);
+
+    expect(tap).toBeGreaterThan(0);
+    expect(held / tap).toBeGreaterThan(3);
+    expect(held / tap).toBeLessThan(5);
+  });
+
+  it('keeps every fleck above the visualization floor, glow included, from the frame it is born', () => {
+    const { field } = shaftAtFloor();
+
+    for (let i = 0; i < 200; i++) {
+      const p = run(field, 1);
+      for (const [, y, , h] of ellipses(p)) {
+        expect(y + h / 2).toBeLessThanOrEqual(VIS_HEIGHT + 1e-9);
+      }
+    }
+  });
+
+  it('scales Dust alpha by the same opacity multiplier the shafts take', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.5); // two fields shedding identical flecks
+    const full = shaftAtFloor().field;
+    const half = shaftAtFloor().field;
+
+    const fullAlphas = dustAlphas(run(full, 5, 1));
+    const halfAlphas = dustAlphas(run(half, 5, 0.5));
+
+    expect(fullAlphas.length).toBeGreaterThan(0);
+    expect(halfAlphas).toHaveLength(fullAlphas.length);
+    halfAlphas.forEach((alpha, i) => expect(alpha).toBeCloseTo(fullAlphas[i] * 0.5));
+  });
+
+  /** The alphas of the fill preceding each drawn fleck — Dust's share of a frame's colour calls. */
+  function dustAlphas(p: RecordingP5): number[] {
+    return p.calls
+      .filter((c, i) => c.name === 'fill' && p.calls[i + 1]?.name === 'ellipse')
+      .map((c) => c.args[3]);
+  }
+
+  it('draws no Dust while the Overlay is hidden, and clears what was airborne when it hides', () => {
+    const { field } = shaftAtFloor();
+    run(field, 5); // Dust is airborne and drawing
+
+    // Hidden: the engine keeps updating the Overlay but stops calling draw.
+    for (let i = 0; i < 3; i++) field.update(VIS_HEIGHT);
+    const p = new RecordingP5();
+    field.draw(p as unknown as P5Like, VIS_HEIGHT);
+
+    // Shown again, the flight does not resume where it left off.
+    expect(ellipses(p)).toHaveLength(0);
+  });
+
+  it('clears in-flight Dust on reset, as it clears the shafts', () => {
+    const { field } = shaftAtFloor();
+    run(field, 5);
+
+    field.reset();
+    const p = new RecordingP5();
+    field.draw(p as unknown as P5Like, VIS_HEIGHT);
+
+    expect(p.calls).toHaveLength(0);
   });
 });

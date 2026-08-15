@@ -1,4 +1,5 @@
 import type { P5Like } from './types';
+import { DustField } from './crystalDust';
 import { keyColumnX, whiteKeyWidth } from './keyboardGeometry';
 
 export type RgbColor = readonly [number, number, number];
@@ -120,6 +121,16 @@ function shaftLayer(
   return { x, y, w, h, radii: [radius, radius, endRadius, endRadius] };
 }
 
+/** How much of a shaft still shows above the floor — the figure every drawn layer is clipped to. */
+function visibleHeight(crystal: Crystal, floor: number): number {
+  return Math.max(Math.min(crystal.length, floor - crystal.y), 0);
+}
+
+/** …and how much the floor has eaten: the rest of it. One clip, read from the other side. */
+function consumedHeight(crystal: Crystal, floor: number): number {
+  return crystal.length - visibleHeight(crystal, floor);
+}
+
 function spawnPool(): Crystal[] {
   return Array.from({ length: INITIAL_POOL_SIZE }, () => ({
     x: 0,
@@ -141,6 +152,10 @@ function spawnPool(): Crystal[] {
  */
 export class CrystalField {
   private readonly crystals: Crystal[] = spawnPool();
+  /** The Dust these shafts shed at the floor — private, and drawn in this same layer (ADR-0008). */
+  private readonly dust = new DustField();
+  /** Whether `draw` ran since the last `update`; a frame without one means the Overlay is hidden. */
+  private drawnSinceUpdate = true;
   /** Which pooled crystal is growing for each held note, keyed by MIDI note id. */
   private readonly noteCrystals = new Map<number, Crystal>();
   /** User-customizable left/right colors — new noteOns pick from these; defaults to `CRYSTAL_COLORS`. */
@@ -180,8 +195,22 @@ export class CrystalField {
     this.noteCrystals.delete(note);
   }
 
-  /** Advances every active crystal one frame within a `visHeight`-tall visualization area. */
+  /**
+   * Advances every active crystal one frame within a `visHeight`-tall
+   * visualization area, and with it the Dust the floor shakes loose.
+   *
+   * Pairs with `draw`: the caller is expected to alternate the two, and a frame
+   * that went undrawn is how this layer learns the Overlay is hidden.
+   */
   update(visHeight: number): void {
+    // A frame that went undrawn means the Overlay is hidden. Dust neither flies
+    // nor accumulates unseen, so it clears and stops shedding — the Overlay's
+    // visibility, like its opacity and z-order, is inherited rather than told.
+    const hidden = !this.drawnSinceUpdate;
+    this.drawnSinceUpdate = false;
+    if (hidden) this.dust.clear();
+    else this.dust.update();
+
     for (const crystal of this.crystals) {
       if (!crystal.active) continue;
       if (crystal.held) {
@@ -194,10 +223,22 @@ export class CrystalField {
         );
         continue;
       }
+      const consumedBefore = consumedHeight(crystal, visHeight);
       crystal.y += TRAVEL_RATE;
       // Deactivate the moment the shaft's top reaches the band edge, so it is
       // gone before any part could render inside the Chroma Key band.
       if (crystal.y >= visHeight) crystal.active = false;
+      if (hidden) continue; // no Dust piles up behind a hidden Overlay
+      // Whatever the floor ate this frame turns into Dust — so a long-held
+      // shaft streams for longer and a staccato tap gives a small puff, with no
+      // second notion of note length to keep in step.
+      this.dust.emit(consumedHeight(crystal, visHeight) - consumedBefore, {
+        x: crystal.x,
+        width: crystal.width,
+        floor: visHeight,
+        rim: rimColor(crystal.color),
+        crystalColor: crystal.color,
+      });
     }
   }
 
@@ -214,21 +255,26 @@ export class CrystalField {
   }
 
   /**
-   * Draws every active crystal as a luminous glass tube, clipping every layer so
-   * none spills into the Chroma Key band. `opacity` (0-1) scales every layer's
-   * alpha — the sidebar's global Crystals opacity control.
+   * Draws every active crystal as a luminous glass tube, plus the Dust they have
+   * shed, clipping everything so none of it spills into the Chroma Key band.
+   * `opacity` (0-1) scales every layer's alpha — the sidebar's global Crystals
+   * opacity control. Also marks the Overlay as visible this frame (see `update`).
    */
   draw(p: P5Like, visHeight: number, opacity = 1): void {
+    this.drawnSinceUpdate = true;
     let drewAny = false;
     for (const crystal of this.crystals) {
       if (!crystal.active) continue;
-      const height = Math.min(crystal.length, visHeight - crystal.y);
+      const height = visibleHeight(crystal, visHeight);
       if (height <= 0) continue;
       this.drawShaft(p, crystal, height, visHeight, opacity);
       drewAny = true;
     }
     // With nothing drawn, no p5 state is touched at all — a hidden Overlay is truly silent.
     if (drewAny) p.noStroke(); // don't leave the rim's stroke behind for the next Overlay
+    // Dust last, so flecks drift in front of the shafts they broke off — still
+    // inside this one call, wherever the Scene chose to place it.
+    this.dust.draw(p, visHeight, opacity);
   }
 
   /** One shaft: halo, mid glow, then the body wearing the rim as its stroke. */
@@ -268,6 +314,7 @@ export class CrystalField {
       crystal.held = false;
     }
     this.noteCrystals.clear();
+    this.dust.clear();
   }
 
   /** Reuses a free pooled crystal, or grows the pool with a new one — never steals a still-active crystal. */
