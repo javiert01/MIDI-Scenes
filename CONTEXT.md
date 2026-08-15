@@ -28,12 +28,21 @@ _Avoid_: Scene (an Overlay is never selected from the Scene list), layer (too va
 
 **Crystal**:
 A note-reactive Overlay: a shaft that spawns at a pressed key's column, grows while
-the key is held, then falls and fades — staying within the visualization area,
-never entering the Chroma Key band. The engine owns every Crystal's state so they
-appear on every Scene and on No Scene; a Scene may choose *where* in its own draw
-order to render them (Underwater draws them behind its creatures), otherwise the
-engine draws them on top.
-_Avoid_: Animation (a Crystal is no longer scoped to one Scene), particle.
+the key is held, then falls and dissolves into Dust — staying within the
+visualization area, never entering the Chroma Key band. The engine owns every
+Crystal's state so they appear on every Scene and on No Scene; a Scene may choose
+*where* in its own draw order to render them (Underwater draws them behind its
+creatures), otherwise the engine draws them on top.
+_Avoid_: Animation (a Crystal is no longer scoped to one Scene), particle (what a
+Crystal sheds is Dust).
+
+**Dust**:
+The fine, luminous flecks a Crystal sheds as it dissolves at the visualization
+area's bottom edge, each rising along a sine path and fading out mid-air. Part of
+the Crystals Overlay rather than an Overlay in its own right — Dust appears, hides
+and dims with the Crystals, so it has no control, no draw seam and no place in the
+render order of its own.
+_Avoid_: Particle, mote, shard, spark.
 
 **Piano Preview**:
 A reactive keyboard Overlay filling the Keyboard band — a stand-in for the
