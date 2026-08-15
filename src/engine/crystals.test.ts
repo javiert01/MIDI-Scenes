@@ -34,7 +34,7 @@ function colorCalls(p: RecordingP5): RecordedCall[] {
 }
 
 /** A grown, held shaft in a canvas `width` wide, drawn once. */
-function drawShaft(width = WIDTH, opacity?: number) {
+function grownShaft(width = WIDTH, opacity?: number) {
   const field = new CrystalField();
   field.noteOn(36, width); // C2 -> column 0
   for (let i = 0; i < 10; i++) field.update(VIS_HEIGHT);
@@ -164,7 +164,7 @@ describe('CrystalField', () => {
   });
 
   it('renders a shaft as a glass tube: halo, mid glow, and body, outermost first', () => {
-    const { crystal, p } = drawShaft();
+    const { crystal, p } = grownShaft();
 
     const [halo, glow, body] = rects(p);
     expect(rects(p)).toHaveLength(3);
@@ -178,7 +178,7 @@ describe('CrystalField', () => {
   });
 
   it('keeps the crystal colour in every layer, brightening inward rather than washing out to white', () => {
-    const { crystal, p } = drawShaft();
+    const { crystal, p } = grownShaft();
 
     const fills = p.calls.filter((c) => c.name === 'fill');
     expect(fills).toHaveLength(3);
@@ -192,7 +192,7 @@ describe('CrystalField', () => {
   });
 
   it('dims the body below its old flat alpha so the Scene shows through a shaft', () => {
-    const { p } = drawShaft();
+    const { p } = grownShaft();
 
     const bodyAlpha = p.calls.filter((c) => c.name === 'fill')[2].args[3];
     expect(bodyAlpha).toBeGreaterThan(0);
@@ -200,7 +200,7 @@ describe('CrystalField', () => {
   });
 
   it('traces a hot near-white rim on the body, stroked at a weight scaled to the shaft', () => {
-    const { crystal, p } = drawShaft();
+    const { crystal, p } = grownShaft();
 
     const stroke = p.calls.find((c) => c.name === 'stroke')!;
     expect(stroke.args.slice(0, 3)).toEqual([...rimColor(crystal.color)]);
@@ -230,8 +230,8 @@ describe('CrystalField', () => {
   });
 
   it('rounds both ends of every layer, with the radius scaling with shaft width', () => {
-    const narrow = drawShaft(WIDTH);
-    const wide = drawShaft(WIDTH * 2);
+    const narrow = grownShaft(WIDTH);
+    const wide = grownShaft(WIDTH * 2);
 
     const narrowBody = rects(narrow.p)[2];
     const wideBody = rects(wide.p)[2];
@@ -257,6 +257,54 @@ describe('CrystalField', () => {
     }
   });
 
+  it('squares off the end the floor cuts, leaving the free end rounded', () => {
+    const field = new CrystalField();
+    field.noteOn(36, WIDTH);
+    const crystal = activeCrystals(field)[0];
+    for (let i = 0; i < 20; i++) field.update(VIS_HEIGHT);
+    crystal.y = VIS_HEIGHT - 20; // the shaft's lower half is under the floor
+
+    const p = new RecordingP5();
+    field.draw(p as unknown as P5Like, VIS_HEIGHT);
+
+    for (const [, , , , topLeft, topRight, bottomRight, bottomLeft] of rects(p)) {
+      expect(topLeft).toBeGreaterThan(0);
+      expect(topRight).toBe(topLeft);
+      expect(bottomRight).toBe(0); // the floor is a cut, not an end
+      expect(bottomLeft).toBe(0);
+    }
+  });
+
+  it('keeps the free end rounded at a steady radius while the floor consumes a falling shaft', () => {
+    const field = new CrystalField();
+    field.noteOn(36, WIDTH);
+    for (let i = 0; i < 20; i++) field.update(VIS_HEIGHT);
+    field.noteOff(36);
+    const crystal = activeCrystals(field)[0];
+    crystal.y = VIS_HEIGHT - crystal.length; // its tip has just reached the floor
+
+    const radii: number[] = [];
+    while (crystal.active) {
+      const p = new RecordingP5();
+      field.draw(p as unknown as P5Like, VIS_HEIGHT);
+      const body = rects(p)[2];
+      if (body) radii.push(body[4]);
+      field.update(VIS_HEIGHT);
+    }
+
+    // The radius follows the shaft's own length, not what survives the clip, so
+    // the top corners never un-round as the shaft slides under the floor.
+    expect(radii.length).toBeGreaterThan(3);
+    for (const radius of radii) expect(radius).toBeCloseTo(radii[0]);
+  });
+
+  it('floors the rim stroke weight so the edge still reads on a small canvas', () => {
+    const tiny = grownShaft(200); // a shaft only ~2.9px wide
+
+    const weight = tiny.p.calls.find((c) => c.name === 'strokeWeight')!.args[0];
+    expect(weight).toBeGreaterThanOrEqual(1.5);
+  });
+
   it('clips every drawn layer at the visualization floor (never into the Chroma Key band)', () => {
     const field = new CrystalField();
     field.noteOn(36, WIDTH);
@@ -275,8 +323,8 @@ describe('CrystalField', () => {
   });
 
   it('scales every layer alpha by the opacity multiplier — halo and rim included', () => {
-    const full = drawShaft(WIDTH, 1);
-    const half = drawShaft(WIDTH, 0.5);
+    const full = grownShaft(WIDTH, 1);
+    const half = grownShaft(WIDTH, 0.5);
 
     const fullAlphas = colorCalls(full.p).map((c) => c.args[3]);
     const halfAlphas = colorCalls(half.p).map((c) => c.args[3]);
@@ -286,8 +334,8 @@ describe('CrystalField', () => {
   });
 
   it('defaults to full opacity when draw is called without a multiplier', () => {
-    const withDefault = drawShaft(WIDTH, undefined);
-    const withExplicitFull = drawShaft(WIDTH, 1);
+    const withDefault = grownShaft(WIDTH, undefined);
+    const withExplicitFull = grownShaft(WIDTH, 1);
 
     expect(colorCalls(withDefault.p).map((c) => c.args[3])).toEqual(
       colorCalls(withExplicitFull.p).map((c) => c.args[3]),

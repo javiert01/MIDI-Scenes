@@ -41,20 +41,25 @@ const CRYSTAL_WIDTH_RATIO = 0.5;
 /** Clear space a held shaft keeps above an earlier crystal falling below it in the same column. */
 const CRYSTAL_MIN_GAP = 6;
 
-// A shaft is drawn as a luminous glass tube: three stacked fills, outermost
-// first, plus a hot rim stroked on the innermost one. Spreads are multiples of
-// the shaft width, so the whole tube scales with the resolution like the shaft.
-/** Widest, faintest layer — the crystal's colour bleeding out into the Scene. */
-const HALO_SPREAD_RATIO = 0.8;
-const HALO_ALPHA = 16;
-/** Just outside the body: the glow that makes the tube read as lit from within. */
-const GLOW_SPREAD_RATIO = 0.28;
-const GLOW_ALPHA = 42;
+// A shaft is drawn as a luminous glass tube: the glow layers below, then the
+// body, with a hot rim stroked on the body. Spreads are multiples of the shaft
+// width, so the whole tube scales with the resolution exactly as the shaft does.
+/**
+ * The fills drawn outside the body, outermost first: a wide, very faint halo of
+ * the crystal's colour bleeding into the Scene, then a tighter, brighter glow
+ * that makes the tube read as lit from within.
+ */
+const GLOW_LAYERS: readonly { spread: number; alpha: number }[] = [
+  { spread: 0.8, alpha: 16 },
+  { spread: 0.28, alpha: 42 },
+];
 /** The body, dimmed well below the old flat 150 so the Scene shows through a shaft. */
 const BODY_ALPHA = 90;
 /** The rim: a near-white edge on the body, the brightest thing a Crystal draws. */
 const RIM_ALPHA = 215;
 const RIM_WEIGHT_RATIO = 0.12;
+/** Floor on the rim's stroke weight, so the edge still reads at small canvas sizes. */
+const RIM_MIN_WEIGHT = 1.5;
 /** How far the rim colour is lerped from the crystal's own colour toward white. */
 const RIM_WHITENESS = 0.5;
 /** Corner radius: half the layer's width (a capsule end)… */
@@ -81,13 +86,18 @@ interface ShaftLayer {
   y: number;
   w: number;
   h: number;
-  radius: number;
+  /** Corner radii in p5's order: top-left, top-right, bottom-right, bottom-left. */
+  radii: [number, number, number, number];
 }
 
 /**
  * The body rect grown by `spread` on every side and clipped at `floor` — the one
  * place the visualization-floor rule lives, so no layer can spill into the Chroma
  * Key band. Returns null when the clip leaves nothing to draw.
+ *
+ * The radius is taken from the shaft's own length rather than the clipped height,
+ * so a falling shaft's free end keeps its shape while the floor eats the other;
+ * and the clipped end is squared off, because the floor is a cut, not an end.
  */
 function shaftLayer(
   crystal: Crystal,
@@ -98,15 +108,15 @@ function shaftLayer(
   const x = crystal.x - spread;
   const y = crystal.y - spread;
   const w = crystal.width + spread * 2;
-  const h = Math.min(crystal.y + bodyHeight + spread, floor) - y;
+  const bottom = crystal.y + bodyHeight + spread;
+  const h = Math.min(bottom, floor) - y;
   if (w <= 0 || h <= 0) return null;
-  return {
-    x,
-    y,
-    w,
-    h,
-    radius: Math.min(w * CORNER_WIDTH_RATIO, h * CORNER_LENGTH_RATIO),
-  };
+  const radius = Math.min(
+    w * CORNER_WIDTH_RATIO,
+    (crystal.length + spread * 2) * CORNER_LENGTH_RATIO,
+  );
+  const endRadius = bottom > floor ? 0 : radius;
+  return { x, y, w, h, radii: [radius, radius, endRadius, endRadius] };
 }
 
 function spawnPool(): Crystal[] {
@@ -208,17 +218,16 @@ export class CrystalField {
    * alpha — the sidebar's global Crystals opacity control.
    */
   draw(p: P5Like, visHeight: number, opacity = 1): void {
-    const shafts = this.crystals
-      .filter((crystal) => crystal.active)
-      .map((crystal) => ({ crystal, height: Math.min(crystal.length, visHeight - crystal.y) }))
-      .filter(({ height }) => height > 0);
-    // Nothing to draw touches no p5 state at all, so a hidden Overlay is truly silent.
-    if (shafts.length === 0) return;
-
-    for (const { crystal, height } of shafts) {
+    let drewAny = false;
+    for (const crystal of this.crystals) {
+      if (!crystal.active) continue;
+      const height = Math.min(crystal.length, visHeight - crystal.y);
+      if (height <= 0) continue;
       this.drawShaft(p, crystal, height, visHeight, opacity);
+      drewAny = true;
     }
-    p.noStroke(); // don't leave the rim's stroke behind for the next Overlay
+    // With nothing drawn, no p5 state is touched at all — a hidden Overlay is truly silent.
+    if (drewAny) p.noStroke(); // don't leave the rim's stroke behind for the next Overlay
   }
 
   /** One shaft: halo, mid glow, then the body wearing the rim as its stroke. */
@@ -231,27 +240,24 @@ export class CrystalField {
   ): void {
     const [r, g, b] = crystal.color;
     p.noStroke();
-    for (const [spreadRatio, alpha] of [
-      [HALO_SPREAD_RATIO, HALO_ALPHA],
-      [GLOW_SPREAD_RATIO, GLOW_ALPHA],
-    ]) {
-      const layer = shaftLayer(crystal, height, crystal.width * spreadRatio, visHeight);
+    for (const { spread, alpha } of GLOW_LAYERS) {
+      const layer = shaftLayer(crystal, height, crystal.width * spread, visHeight);
       if (!layer) continue;
       p.fill(r, g, b, alpha * opacity);
-      p.rect(layer.x, layer.y, layer.w, layer.h, layer.radius);
+      p.rect(layer.x, layer.y, layer.w, layer.h, ...layer.radii);
     }
 
     // The rim is stroked on the body, so it traces exactly the body's rounded
     // edge. p5 centres a stroke on the path, hence the half-weight the body's
     // floor is pulled up by — the rim must not bleed past visHeight either.
-    const weight = crystal.width * RIM_WEIGHT_RATIO;
+    const weight = Math.max(RIM_MIN_WEIGHT, crystal.width * RIM_WEIGHT_RATIO);
     const body = shaftLayer(crystal, height, 0, visHeight - weight / 2);
     if (!body) return;
     const [rimR, rimG, rimB] = rimColor(crystal.color);
     p.stroke(rimR, rimG, rimB, RIM_ALPHA * opacity);
     p.strokeWeight(weight);
     p.fill(r, g, b, BODY_ALPHA * opacity);
-    p.rect(body.x, body.y, body.w, body.h, body.radius);
+    p.rect(body.x, body.y, body.w, body.h, ...body.radii);
   }
 
   /** Deactivates every crystal and forgets all held notes (e.g. on resolution change). */

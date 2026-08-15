@@ -18,8 +18,15 @@ interface RecordedCall {
   args: unknown[];
 }
 
-/** Rects one Crystal draws for its glass-tube layers: halo, mid glow, body (the rim is the body's stroke). */
-const SHAFT_LAYERS_PER_CRYSTAL = 3;
+/**
+ * How many Crystals were drawn. A Crystal draws several layered rects but strokes
+ * its rim exactly once, on its body, so rim strokes count crystals without pinning
+ * how many layers a shaft wears. Crystals are the only thing stroking in these
+ * tests: the Piano Preview band is cleared and the fake Scenes draw nothing.
+ */
+function drawnCrystals(stub: StubP5): number {
+  return stub.calls.filter((c) => c.name === 'strokeWeight').length;
+}
 
 class StubP5 implements P5Like {
   width = 0;
@@ -1368,15 +1375,6 @@ describe('VisualizerEngine MIDI: activity tick', () => {
 describe('VisualizerEngine Crystal Overlay (T15)', () => {
   const deviceA: MidiInputLike = { id: 'dev-a', name: 'Keyboard A' };
 
-  // Crystal shafts are narrow (a fraction of a key column); the only other rect
-  // drawn is the full-width Chroma Key band, so a small width isolates crystals.
-  // Each Crystal draws its glass-tube layers (halo, mid glow, body) as separate
-  // rects, so counts here are in crystals, not rects.
-  function drawnCrystals(stub: StubP5): number {
-    const rects = stub.calls.filter((c) => c.name === 'rect' && (c.args as number[])[2] < 100);
-    return rects.length / SHAFT_LAYERS_PER_CRYSTAL;
-  }
-
   async function setUpEngine(scenes: Scene[]) {
     const { factory, getInstance } = stubP5Factory();
     const container = document.createElement('div');
@@ -1469,15 +1467,6 @@ describe('VisualizerEngine Crystal Overlay (T15)', () => {
 describe('VisualizerEngine Crystals sidebar controls (T17)', () => {
   const deviceA: MidiInputLike = { id: 'dev-a', name: 'Keyboard A' };
 
-  // Crystal shafts are narrow (a fraction of a key column); the only other rect
-  // drawn is the full-width Chroma Key band, so a small width isolates crystals.
-  // Each Crystal draws its glass-tube layers (halo, mid glow, body) as separate
-  // rects, so counts here are in crystals, not rects.
-  function drawnCrystals(stub: StubP5): number {
-    const rects = stub.calls.filter((c) => c.name === 'rect' && (c.args as number[])[2] < 100);
-    return rects.length / SHAFT_LAYERS_PER_CRYSTAL;
-  }
-
   async function setUpEngine(scenes: Scene[] = []) {
     const { factory, getInstance } = stubP5Factory();
     const container = document.createElement('div');
@@ -1556,7 +1545,7 @@ describe('VisualizerEngine Crystals sidebar controls (T17)', () => {
     stub.draw?.();
     const halfAlphas = layerAlphas();
 
-    expect(fullAlphas.length).toBe(SHAFT_LAYERS_PER_CRYSTAL + 1); // + the rim
+    expect(fullAlphas.length).toBeGreaterThan(0);
     expect(halfAlphas).toHaveLength(fullAlphas.length);
     halfAlphas.forEach((alpha, i) => expect(alpha).toBeCloseTo(fullAlphas[i] * 0.5));
   });
@@ -1750,11 +1739,6 @@ describe('VisualizerEngine Piano Preview Overlay (T18)', () => {
 
 describe('VisualizerEngine No Scene (T16)', () => {
   const deviceA: MidiInputLike = { id: 'dev-a', name: 'Keyboard A' };
-
-  function drawnCrystals(stub: StubP5): number {
-    const rects = stub.calls.filter((c) => c.name === 'rect' && (c.args as number[])[2] < 100);
-    return rects.length / SHAFT_LAYERS_PER_CRYSTAL;
-  }
 
   it('lists a "No Scene" entry ahead of the registered Scenes', () => {
     const { factory } = stubP5Factory();
