@@ -70,7 +70,11 @@ function spawnRainStreak({ width, visHeight }: Bounds): RainStreak {
   };
 }
 
-function updateRainStreak(streak: RainStreak, { width, visHeight }: Bounds, speedScale: number): void {
+function updateRainStreak(
+  streak: RainStreak,
+  { width, visHeight }: Bounds,
+  speedScale: number,
+): void {
   streak.y += streak.speed * speedScale;
   if (streak.y - streak.length > visHeight) {
     streak.x = randomRange(0, width);

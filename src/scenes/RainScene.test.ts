@@ -99,7 +99,12 @@ describe('RainScene', () => {
 
   it('confines spawned rain to the visualization area, not the chroma key band', () => {
     const scene = new RainScene();
-    const ctx = makeCtx({ width: 900, height: 900, chromaKeyHeight: 300, params: { rainCount: 20 } });
+    const ctx = makeCtx({
+      width: 900,
+      height: 900,
+      chromaKeyHeight: 300,
+      params: { rainCount: 20 },
+    });
     scene.setup(ctx);
 
     const visHeight = ctx.height - ctx.chromaKeyHeight;
