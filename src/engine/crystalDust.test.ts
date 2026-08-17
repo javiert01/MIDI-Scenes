@@ -76,7 +76,7 @@ function frame(field: DustField, opacity = 1): Sample[] {
 function flightOf(overrides: Partial<Record<RandomDraw, number>> = {}): Sample[] {
   pinRandoms(overrides);
   const field = new DustField();
-  field.emit(3, SOURCE); // enough consumption for exactly one fleck
+  field.emit(1, SOURCE); // exactly one fleck
   const path: Sample[] = [];
   for (let i = 0; i < 500; i++) {
     const [sample] = frame(field);
@@ -163,13 +163,13 @@ describe('DustField', () => {
     const middle = cohort(20);
     const newest = cohort(30);
 
-    field.emit(3000, oldest); // far more consumption than the pool can hold
+    field.emit(3000, oldest); // far more Dust than the pool can hold
     const cap = frame(field).length;
     advance(field, 10);
-    field.emit(15, middle); // a second cohort, recycled out of the first
+    field.emit(5, middle); // a second cohort, recycled out of the first
     const middleCount = countOf(frame(field), middle);
     advance(field, 10);
-    field.emit(3, newest); // one more fleck, with the pool still full
+    field.emit(1, newest); // one more fleck, with the pool still full
 
     const samples = frame(field);
     expect(cap).toBeGreaterThan(50); // room enough for a dense chord to read
@@ -185,23 +185,23 @@ describe('DustField', () => {
     const second = cohort(20);
     // How many flecks the second burst is worth, measured on an empty field.
     const burst = new DustField();
-    burst.emit(300, second);
+    burst.emit(105, second);
     const burstSize = frame(burst).length;
 
     field.emit(3000, first); // fills the pool
-    field.emit(300, second); // …and overruns it in the same frame, nothing yet aged
+    field.emit(105, second); // …and overruns it in the same frame, nothing yet aged
 
     // Every fleck is newborn, so faintness alone cannot choose: birth order does.
     expect(countOf(frame(field), second)).toBe(burstSize);
   });
 
-  it('banks consumption too small for a whole fleck until it adds up to one', () => {
+  it('banks emission too small for a whole fleck until it adds up to one', () => {
     pinRandoms();
     const field = new DustField();
 
-    // A single frame of this much consumption is worth well under one fleck.
+    field.emit(0.25, SOURCE); // a frame's worth from a slow shedding rate
     expect(frame(field)).toHaveLength(0);
-    for (let i = 0; i < 10; i++) field.emit(1, SOURCE);
+    for (let i = 0; i < 3; i++) field.emit(0.25, SOURCE);
 
     expect(countOf(frame(field), SOURCE)).toBeGreaterThan(0);
   });

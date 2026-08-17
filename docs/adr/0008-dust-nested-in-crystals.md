@@ -29,6 +29,8 @@ deliberately do not.
   of a shaft is clipped away at the floor each frame; that figure drives the
   emission rate directly. The two systems are coupled at birth, so an interface
   between them would be ceremony around a number one of them already has.
+  _(Amended — see below. Consumption is now one of two emission rules, and the
+  figure crossing the boundary is a fleck count rather than a height.)_
 
 This is the surprising part worth recording: a future reader who knows ADR-0004
 will look at an engine-owned, Scene-independent visual layer with no toggle, no
@@ -64,3 +66,29 @@ was not.
   ADR-0004 band invariant: Dust is clipped by the same `visHeight` clamp, so
   "nothing this Overlay draws has `y + h > visHeight`" remains one rule with one
   test.
+
+## Amendment: the boundary carries flecks, not height
+
+Held shafts now shed Dust too (a slow trickle once the tip rests on the floor, so a
+sustained chord reads as "still holding" against a released shaft's full stream).
+That breaks the assumption under "Emission is driven from consumption": a held shaft
+is anchored at the top and grows downward, so the floor never consumes it and there
+is no height figure to drive anything with. Its rate is per-frame instead.
+
+So the nesting decision stands unchanged — `DustField` is still private to
+`CrystalField`, still has no seam, control or render slot of its own — but the
+number crossing between them moves up a level:
+
+- **`DustField.emit` takes a fleck count**, not pixels consumed. It banks the
+  fraction and sheds whole flecks; it holds no opinion on what a shaft is worth.
+- **Both rate rules live in `crystals.ts`** — `FLECKS_PER_PIXEL_CONSUMED` for a
+  falling shaft, `HELD_TRICKLE_FLECKS_PER_FRAME` for a held one. That is where the
+  shaft states are known, so it is where "how much Dust is this worth" belongs.
+
+The original wording rejected "an interface between them" as ceremony around a
+number one side already had. With two rules answering to different quantities,
+there is no longer a single such number, and the fleck count is the one unit both
+rules land on — so this is that same argument reaching a different answer under new
+facts, not a reversal of it. `DustField` is thinner as a result, which is the trade
+accepted here: it is closer to a fraction bank over a fleck pool, and the judgement
+about what playing looks like sits wholly with the Crystals.

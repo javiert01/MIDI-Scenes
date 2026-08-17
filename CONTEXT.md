@@ -29,7 +29,8 @@ _Avoid_: Scene (an Overlay is never selected from the Scene list), layer (too va
 **Crystal**:
 A note-reactive Overlay: a luminous glass rod that spawns at a pressed key's column,
 grows while the key is held, then falls and dissolves into Dust — staying within the
-visualization area, never entering the Chroma Key band. Its coloured body is dim
+visualization area, never entering the Chroma Key band. A hold long enough to reach
+the floor sheds Dust too, at the gentler of the two rates. Its coloured body is dim
 enough for the Scene to show through, edged by a Rim and wrapped in a glow that
 deliberately spills past its own column, so a chord blooms as one mass of light
 rather than separate bars. The engine owns every Crystal's state so they appear on
@@ -48,9 +49,13 @@ is), highlight.
 **Dust**:
 The fine, luminous flecks a Crystal sheds as it dissolves at the visualization
 area's bottom edge, born from its Rim and carrying that colour, each rising along a
-sine path and fading out mid-air. Part of the Crystals Overlay rather than an
-Overlay in its own right — Dust appears, hides and dims with the Crystals, so it has
-no control, no draw seam and no place in the render order of its own.
+sine path and fading out mid-air. The rate says what the note is doing: a released
+shaft is eaten by the floor and streams Dust in proportion to the shaft going in,
+while a held one — anchored, so never eaten — only boils a slow trickle off a tip
+resting on the floor. Holding therefore reads as a trickle and ending as a stream.
+Part of the Crystals Overlay rather than an Overlay in its own right — Dust appears,
+hides and dims with the Crystals, so it has no control, no draw seam and no place in
+the render order of its own.
 _Avoid_: Particle, mote, shard, spark.
 
 **Piano Preview**:

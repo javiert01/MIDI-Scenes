@@ -26,12 +26,12 @@ interface Fleck {
   crystalColor: RgbColor;
 }
 
-/** Where a fleck is breaking off: the consumed shaft's column, floor, and colours. */
+/** Where a fleck is breaking off: the shedding shaft's column, floor, and colours. */
 export interface DustSource {
   /** Left edge of the shaft's column and its width — flecks are born across it. */
   x: number;
   width: number;
-  /** The visualization floor, where the shaft is being consumed. */
+  /** The visualization floor, where the shaft is shedding. */
   floor: number;
   /** The Rim's white tint, a fleck's birth colour. */
   rim: RgbColor;
@@ -39,8 +39,6 @@ export interface DustSource {
   crystalColor: RgbColor;
 }
 
-/** Flecks born per pixel of shaft height consumed. */
-const FLECKS_PER_PIXEL = 0.35;
 /** The alpha of a fleck's bright inner disc, and of the softer halo around it. */
 const FLECK_ALPHA = 200;
 const GLOW_ALPHA = 55;
@@ -103,25 +101,32 @@ function spent(fleck: Fleck): number {
 }
 
 /**
- * The Dust a Crystal sheds as the visualization floor consumes it. Owned
- * privately by `CrystalField` rather than exposed as an Overlay of its own —
- * see ADR-0008.
+ * The Dust a Crystal sheds where it meets the visualization floor — streaming
+ * off a falling shaft the floor is eating, trickling off a held one merely
+ * resting there. How much either is worth is the Crystal layer's rule, not
+ * this one's; here a fleck count is simply turned into flecks. Owned privately
+ * by `CrystalField` rather than exposed as an Overlay of its own — see ADR-0008.
  */
 export class DustField {
   private readonly flecks: Fleck[] = spawnPool();
   private births = 0;
   /**
-   * Fractional flecks carried between frames so slow consumption still emits,
-   * banked per key column so each column earns its own Dust rather than
+   * Fractional flecks carried between frames so a slow shedding rate still
+   * emits, banked per key column so each column earns its own Dust rather than
    * spending a neighbour's remainder. Bounded by the key count, and the
    * difference against one shared bank is under a fleck either way.
    */
   private readonly pendingByColumn = new Map<number, number>();
 
-  /** Sheds Dust for `consumed` px of shaft height eaten by the floor this frame. */
-  emit(consumed: number, source: DustSource): void {
-    if (consumed <= 0) return;
-    let pending = (this.pendingByColumn.get(source.x) ?? 0) + consumed * FLECKS_PER_PIXEL;
+  /**
+   * Sheds `flecks` worth of Dust at `source`, banking any fraction of a fleck
+   * until later frames make it whole. The count is the caller's to decide:
+   * what a shaft's shedding is worth is a Crystal-side rule, and it differs
+   * between a falling shaft the floor is eating and a held one boiling off.
+   */
+  emit(flecks: number, source: DustSource): void {
+    if (flecks <= 0) return;
+    let pending = (this.pendingByColumn.get(source.x) ?? 0) + flecks;
     while (pending >= 1) {
       pending -= 1;
       this.shed(source);

@@ -1,5 +1,5 @@
 import type { P5Like } from './types';
-import { DustField } from './crystalDust';
+import { DustField, type DustSource } from './crystalDust';
 import { keyColumnX, whiteKeyWidth } from './keyboardGeometry';
 
 export type RgbColor = readonly [number, number, number];
@@ -42,6 +42,21 @@ const TRAVEL_RATE = 4;
 const CRYSTAL_WIDTH_RATIO = 0.5;
 /** Clear space a held shaft keeps above an earlier crystal falling below it in the same column. */
 const CRYSTAL_MIN_GAP = 6;
+
+// What a shaft's shedding is worth in Dust. A falling shaft is measured by what
+// the floor eats, so its Dust is proportional to the shaft that went in; a held
+// one is anchored and so is never eaten at all, and is measured per frame instead.
+/** Flecks a falling shaft sheds per pixel of height the floor consumes. */
+const FLECKS_PER_PIXEL_CONSUMED = 0.35;
+/** …and so this many per frame, falling at `TRAVEL_RATE` — the rate the trickle is set against. */
+const FALLING_FLECKS_PER_FRAME = TRAVEL_RATE * FLECKS_PER_PIXEL_CONSUMED;
+/**
+ * Flecks a held shaft, its tip resting on the floor, boils off each frame: a
+ * small fraction of the falling rate, far enough below it that "still holding"
+ * and "ending" read apart at a glance. Derived rather than written out, so the
+ * two stay this far apart if `TRAVEL_RATE` ever changes.
+ */
+const HELD_TRICKLE_FLECKS_PER_FRAME = FALLING_FLECKS_PER_FRAME / 9;
 
 // A shaft is drawn as a luminous glass tube: the glow layers below, then the
 // body, with a hot rim stroked on the body. Spreads are multiples of the shaft
@@ -131,6 +146,27 @@ function consumedHeight(crystal: Crystal, floor: number): number {
   return crystal.length - visibleHeight(crystal, floor);
 }
 
+/**
+ * Whether the shaft's free end is down on the floor. A held shaft's growth is
+ * capped there, so it settles flush against the line rather than crossing it —
+ * and a shaft held short of the floor by the growth ceiling reads false here,
+ * which is what keeps it from shedding at a floor it never touches.
+ */
+function tipRestsOnFloor(crystal: Crystal, floor: number): boolean {
+  return crystal.y + crystal.length >= floor;
+}
+
+/** Where this shaft's Dust breaks off: its column at the floor, wearing its colours. */
+function dustSource(crystal: Crystal, floor: number): DustSource {
+  return {
+    x: crystal.x,
+    width: crystal.width,
+    floor,
+    rim: rimColor(crystal.color),
+    crystalColor: crystal.color,
+  };
+}
+
 function spawnPool(): Crystal[] {
   return Array.from({ length: INITIAL_POOL_SIZE }, () => ({
     x: 0,
@@ -195,7 +231,9 @@ export class CrystalField {
 
   /**
    * Advances every active crystal one frame within a `visHeight`-tall
-   * visualization area, and with it the Dust the floor shakes loose.
+   * visualization area, and with it the Dust the floor shakes loose — a full
+   * stream off a falling shaft the floor is eating, a trickle off a held one
+   * merely resting its tip there.
    *
    * `visible` is the Crystals Overlay's own visibility. Shafts keep falling
    * either way, but Dust neither flies nor piles up unseen: hiding the Overlay
@@ -215,6 +253,19 @@ export class CrystalField {
           crystal.length + TRAVEL_RATE,
           this.growthCeiling(crystal, visHeight),
         );
+        // Anchored at the top, a held shaft is never eaten by the floor — so
+        // there is nothing to shed until its tip is resting on the floor, and
+        // once it is, the tip boils off at a rate of its own.
+        //
+        // The `visible` guard matches the falling branch below, but no test
+        // pins it: hiding the Overlay clears the fractional bank every frame,
+        // and a trickle under one fleck per frame can never fill it in one, so
+        // dropping the guard changes nothing observable. It stays because that
+        // reasoning holds only while the rate stays below 1 — keep it if you
+        // raise `HELD_TRICKLE_FLECKS_PER_FRAME`.
+        if (visible && tipRestsOnFloor(crystal, visHeight)) {
+          this.dust.emit(HELD_TRICKLE_FLECKS_PER_FRAME, dustSource(crystal, visHeight));
+        }
         continue;
       }
       const consumedBefore = consumedHeight(crystal, visHeight);
@@ -226,13 +277,8 @@ export class CrystalField {
       // Whatever the floor ate this frame turns into Dust — so a long-held
       // shaft streams for longer and a staccato tap gives a small puff, with no
       // second notion of note length to keep in step.
-      this.dust.emit(consumedHeight(crystal, visHeight) - consumedBefore, {
-        x: crystal.x,
-        width: crystal.width,
-        floor: visHeight,
-        rim: rimColor(crystal.color),
-        crystalColor: crystal.color,
-      });
+      const consumed = consumedHeight(crystal, visHeight) - consumedBefore;
+      this.dust.emit(consumed * FLECKS_PER_PIXEL_CONSUMED, dustSource(crystal, visHeight));
     }
   }
 

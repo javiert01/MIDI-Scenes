@@ -407,8 +407,26 @@ describe('CrystalField shedding Dust', () => {
     return { field, crystal };
   }
 
+  /** A still-held shaft, grown until its tip is pinned against the floor. */
+  function heldShaftAtFloor() {
+    const field = new CrystalField();
+    field.noteOn(36, WIDTH);
+    const crystal = activeCrystals(field)[0];
+    while (crystal.length < VIS_HEIGHT) field.update(VIS_HEIGHT);
+    return { field, crystal };
+  }
+
   function ellipses(p: RecordingP5): number[][] {
     return p.calls.filter((c) => c.name === 'ellipse').map((c) => c.args);
+  }
+
+  /**
+   * How many flecks are airborne after `frames` of the update-then-draw cycle.
+   * With a pinned lifespan longer than the window, none has died yet, so this
+   * counts every fleck shed over it — the emission rate, read at the draw seam.
+   */
+  function airborneAfter(field: CrystalField, frames: number): number {
+    return ellipses(run(field, frames)).length;
   }
 
   /**
@@ -430,6 +448,46 @@ describe('CrystalField shedding Dust', () => {
     const p = run(field, 5);
 
     expect(ellipses(p).length).toBeGreaterThan(0);
+  });
+
+  it('trickles Dust from a held shaft once its tip is pinned against the floor', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.5); // one lifespan, longer than the window
+    const { field } = heldShaftAtFloor();
+
+    expect(airborneAfter(field, 20)).toBeGreaterThan(0);
+  });
+
+  it('sheds nothing from a held shaft whose tip has not yet reached the floor', () => {
+    const field = new CrystalField();
+    field.noteOn(36, WIDTH);
+
+    const airborne = airborneAfter(field, 60);
+
+    expect(activeCrystals(field)[0].length).toBeLessThan(VIS_HEIGHT); // still short of the floor
+    expect(airborne).toBe(0);
+  });
+
+  it('trickles far more slowly than the floor consumes a released shaft, so a hold reads as a hold', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.5); // one lifespan, longer than the window
+    const held = heldShaftAtFloor().field;
+    const released = shaftAtFloor(150).field; // grown full, so the floor eats it all window
+
+    const trickled = airborneAfter(held, 20);
+    const streamed = airborneAfter(released, 20);
+
+    expect(trickled).toBeGreaterThan(0);
+    expect(trickled).toBeLessThan(streamed / 5);
+  });
+
+  it('switches from the trickle to the full stream the moment the shaft is released', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    const { field } = heldShaftAtFloor();
+    const whileHeld = airborneAfter(field, 20);
+
+    field.noteOff(36);
+    const afterRelease = airborneAfter(field, 20) - whileHeld;
+
+    expect(afterRelease).toBeGreaterThan(whileHeld * 3);
   });
 
   it('sheds Dust in proportion to the shaft consumed — a long note streams, a tap puffs', () => {
@@ -488,6 +546,91 @@ describe('CrystalField shedding Dust', () => {
 
     // Shown again, it starts over rather than resuming that population.
     expect(ellipses(run(field, 1)).length).toBeLessThan(airborne);
+  });
+
+  it('keeps trickled flecks above the visualization floor, glow included, as it does shed ones', () => {
+    const { field } = heldShaftAtFloor();
+    let seen = 0;
+
+    for (let i = 0; i < 200; i++) {
+      for (const [, y, , h] of ellipses(run(field, 1))) {
+        expect(y + h / 2).toBeLessThanOrEqual(VIS_HEIGHT + 1e-9);
+        seen++;
+      }
+    }
+
+    expect(seen).toBeGreaterThan(0);
+  });
+
+  it('scales trickled Dust by the same opacity multiplier the shafts take', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.5); // two fields trickling identical flecks
+    const full = heldShaftAtFloor().field;
+    const half = heldShaftAtFloor().field;
+
+    const fullAlphas = dustAlphas(run(full, 40, 1));
+    const halfAlphas = dustAlphas(run(half, 40, 0.5));
+
+    expect(fullAlphas.length).toBeGreaterThan(0);
+    expect(halfAlphas).toHaveLength(fullAlphas.length);
+    halfAlphas.forEach((alpha, i) => expect(alpha).toBeCloseTo(fullAlphas[i] * 0.5));
+  });
+
+  it('clears airborne trickled Dust the moment the Overlay is hidden', () => {
+    const { field } = heldShaftAtFloor();
+    const airborne = airborneAfter(field, 40);
+    expect(airborne).toBeGreaterThan(0);
+
+    // The shaft stays held and pinned at the floor; only its Dust stops.
+    field.update(VIS_HEIGHT, false);
+    const whileHidden = new RecordingP5();
+    field.draw(whileHidden as unknown as P5Like, VIS_HEIGHT);
+    expect(ellipses(whileHidden)).toHaveLength(0);
+
+    // Shown again, the trickle builds up afresh rather than resuming that population.
+    expect(airborneAfter(field, 1)).toBeLessThan(airborne);
+  });
+
+  /** `notes` keys held down together, grown until every tip rests on the floor. */
+  function chordHeldAtFloor(notes: number): CrystalField {
+    const field = new CrystalField();
+    for (let i = 0; i < notes; i++) field.noteOn(36 + i, WIDTH);
+    while (activeCrystals(field)[0].length < VIS_HEIGHT) field.update(VIS_HEIGHT);
+    return field;
+  }
+
+  it('settles a held chord at a steady population rather than piling up without end', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.5); // one lifespan, so the population settles
+    const field = chordHeldAtFloor(4);
+
+    // Unlike a falling shaft, a held one never ends — the trickle is the only
+    // emitter that can run forever, so it is the one that could leak.
+    const settled = airborneAfter(field, 120);
+    const muchLater = airborneAfter(field, 600);
+
+    expect(settled).toBeGreaterThan(0);
+    expect(muchLater).toBeLessThanOrEqual(settled + 4);
+  });
+
+  it('caps trickled Dust however densely the keyboard is held, per the fixed fleck pool', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
+
+    const modest = airborneAfter(chordHeldAtFloor(20), 120);
+    const dense = airborneAfter(chordHeldAtFloor(60), 120);
+
+    expect(modest).toBeGreaterThan(0);
+    // Three times the keys held, but nowhere near three times the Dust: past a
+    // point the pool binds, which is what puts a ceiling on the draw cost.
+    expect(dense).toBeLessThan(modest * 2);
+  });
+
+  it('clears trickled Dust on reset, and stops the trickle with the shaft it came from', () => {
+    const { field } = heldShaftAtFloor();
+    run(field, 40);
+
+    field.reset();
+    const p = run(field, 5); // the held shaft is gone, so nothing keeps boiling off
+
+    expect(p.calls).toHaveLength(0);
   });
 
   it('clears in-flight Dust on reset, as it clears the shafts', () => {
