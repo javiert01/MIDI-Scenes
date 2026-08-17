@@ -47,7 +47,7 @@ was not.
   state, up front.
 
 - **Dust inline in `crystals.ts`.** Fewest moving parts. Rejected: it makes one file
-  two systems, and the particle physics — sine path, lifespan, pool recycling —
+  two systems, and a fleck's own physics — sine path, lifespan, pool recycling —
   could then only be tested through the shaft lifecycle rather than directly.
 
 ## Consequences
@@ -57,7 +57,7 @@ was not.
   and an ADR-0004 amendment — real work, chosen knowingly.
 - The Crystals Overlay's draw cost rises from one `rect` per crystal to roughly four
   draw calls per crystal plus two per airborne Dust fleck, all inside the same
-  `drawCrystals()` call a Scene already places. The mote pool is fixed-size and
+  `drawCrystals()` call a Scene already places. The fleck pool is fixed-size and
   recycles its oldest entries, so that cost has a ceiling regardless of playing
   density.
 - `CrystalField`'s floor-clipping stays the single enforcement point for the
