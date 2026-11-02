@@ -341,6 +341,29 @@ describe('GreatHallScene', () => {
     expect(fullScreenRects).toHaveLength(0);
   });
 
+  it('waits out a full interval when the lightning toggle comes back on, rather than flashing at once', () => {
+    const scene = new GreatHallScene();
+    const p = new RecordingP5();
+    const off = makeCtx({
+      p: p as unknown as P5Like,
+      params: { candleCount: 4, cloudCount: 2, lightning: false },
+    });
+    const on = { ...off, params: { ...off.params, lightning: true } };
+    const fullScreenRects = () =>
+      p.calls.filter((c) => c.name === 'rect' && c.args[2] === off.width);
+    scene.setup(off);
+
+    // Well past the 14 000 ms the first flash was scheduled for (Math.random is pinned to 0.5).
+    scene.update({ ...off, elapsed: 100_000 });
+    scene.update({ ...on, elapsed: 100_016 });
+    scene.draw({ ...on, elapsed: 100_016 });
+    expect(fullScreenRects()).toHaveLength(0);
+
+    scene.update({ ...on, elapsed: 108_001 });
+    scene.draw({ ...on, elapsed: 108_001 });
+    expect(fullScreenRects()).toHaveLength(1);
+  });
+
   it('onNoteOn flares the candle nearest the key column, scaled by velocity', () => {
     const scene = new GreatHallScene();
     const ctx = makeCtx({ width: 900, params: { candleCount: 2, cloudCount: 0 } });

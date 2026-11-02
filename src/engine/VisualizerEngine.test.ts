@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NO_SCENE_ID, STORAGE_KEY, VisualizerEngine } from '@/engine/VisualizerEngine';
 import { CRYSTAL_COLORS } from '@/engine/crystals';
+import { keyColumnX } from '@/engine/keyboardGeometry';
 import type { P5Factory, P5Like } from '@/engine/types';
 import type { ParamSpec, Scene, SceneContext, NoteEvent } from '@/engine/scene';
 import type { MidiAccessLike, MidiInputLike, MidiMessageHandler } from '@/engine/midiTypes';
@@ -484,6 +485,57 @@ describe('VisualizerEngine keyboard band selector', () => {
     const engine = new VisualizerEngine(container, { createP5: factory, storage });
 
     expect(engine.keyboardBand).toBe('none');
+  });
+});
+
+describe('VisualizerEngine destroyed while MIDI access is pending', () => {
+  const device: MidiInputLike = { id: 'dev-a', name: 'Keyboard A' };
+
+  it('wires nothing once access is granted', async () => {
+    const { factory } = stubP5Factory();
+    const scene = new FakeScene('a', 'Scene A');
+    const midi = new FakeMidiAccess([device]);
+    let grantAccess!: (access: MidiAccessLike) => void;
+    const engine = new VisualizerEngine(document.createElement('div'), {
+      createP5: factory,
+      createMidi: () =>
+        new Promise((resolve) => {
+          grantAccess = resolve;
+        }),
+      storage: new FakeStorage(),
+      scenes: [scene],
+    });
+
+    engine.destroy();
+    grantAccess(midi);
+    await flushMicrotasks();
+    midi.emit('dev-a', [0x90, 60, 100]);
+    midi.setInputs([device, { id: 'dev-b', name: 'Keyboard B' }]);
+
+    expect(scene.onNoteOn).not.toHaveBeenCalled();
+    expect(engine.activeDeviceId).toBeNull();
+    expect(engine.devices).toEqual([]);
+  });
+
+  it('notifies nobody once access is refused', async () => {
+    const { factory } = stubP5Factory();
+    let refuseAccess!: (reason: Error) => void;
+    const engine = new VisualizerEngine(document.createElement('div'), {
+      createP5: factory,
+      createMidi: () =>
+        new Promise((_, reject) => {
+          refuseAccess = reject;
+        }),
+      storage: new FakeStorage(),
+    });
+    const listener = vi.fn();
+    engine.subscribe(listener);
+
+    engine.destroy();
+    refuseAccess(new Error('refused'));
+    await flushMicrotasks();
+
+    expect(listener).not.toHaveBeenCalled();
   });
 });
 
@@ -1468,15 +1520,37 @@ describe('VisualizerEngine Crystal Overlay (T15)', () => {
     expect(drawnCrystals(stub)).toBe(1);
   });
 
-  it('clears crystals when the resolution preset changes, since columns are width-relative', async () => {
+  it('clears released crystals when the resolution preset changes, since columns are width-relative', async () => {
     const { engine, midi, stub } = await setUpEngine([]);
 
     midi.emit('dev-a', [0x90, 60, 100]);
+    midi.emit('dev-a', [0x80, 60, 0]);
     engine.setResolutionPreset('1920x1080');
     stub.calls = [];
     stub.draw?.();
 
     expect(drawnCrystals(stub)).toBe(0);
+  });
+
+  it('gives a held note a fresh crystal at its new column when the resolution preset changes', async () => {
+    const scene = new FakeScene('a', 'Scene A');
+    const { engine, midi, stub } = await setUpEngine([scene]);
+    const activeCrystals = () => {
+      stub.draw?.();
+      const ctx = scene.draw.mock.calls.at(-1)![0] as SceneContext;
+      return ctx.crystals.filter((c) => c.active);
+    };
+
+    midi.emit('dev-a', [0x90, 60, 100]);
+    engine.setResolutionPreset('1920x1080');
+
+    const [crystal, ...others] = activeCrystals();
+    expect(others).toHaveLength(0);
+    expect(crystal.held).toBe(true);
+    expect(crystal.x).toBe(keyColumnX(60, 1920));
+
+    midi.emit('dev-a', [0x80, 60, 0]);
+    expect(activeCrystals()[0]?.held).toBe(false); // the release still reaches it
   });
 });
 
@@ -2113,6 +2187,38 @@ describe('VisualizerEngine Virtual Input (T19)', () => {
     expect(activeCrystals()[0]?.held).toBe(false); // now it falls
   });
 
+  it("does not cut a Virtual Input note when a Device's unmatched note-off arrives", async () => {
+    const device: MidiInputLike = { id: 'dev-a', name: 'Keyboard A' };
+    const scene = new FakeScene('a', 'Scene A');
+    const { factory, getInstance } = stubP5Factory();
+    const midi = new FakeMidiAccess([device]);
+    const engine = new VisualizerEngine(document.createElement('div'), {
+      createP5: factory,
+      createMidi: fakeMidiFactory(midi),
+      storage: new FakeStorage(),
+      scenes: [scene],
+    });
+    engines.push(engine);
+    await flushMicrotasks();
+    const stub = getInstance();
+    engine.setVirtualInputEnabled(true);
+    const activeCrystals = () => {
+      stub.draw?.();
+      const ctx = scene.draw.mock.calls.at(-1)![0] as SceneContext;
+      return ctx.crystals.filter((c) => c.active);
+    };
+
+    keydown('KeyA');
+    // A Device key pressed before the Device was wired, released only now.
+    midi.emit('dev-a', [0x80, MIDDLE_C, 0]);
+
+    expect(activeCrystals()[0]?.held).toBe(true); // the Virtual Input still holds it
+    expect(scene.onNoteOff).toHaveBeenCalledTimes(1); // the event still reaches the Scene
+
+    keyup('KeyA');
+    expect(activeCrystals()[0]?.held).toBe(false);
+  });
+
   it('plays a note when a Piano Preview key is clicked, and releases it on mouseup', () => {
     const scene = new FakeScene('a', 'Scene A');
     const { engine, stub } = setUpEngine([scene]);
@@ -2456,6 +2562,42 @@ describe('VisualizerEngine Preview Synth wiring (T25)', () => {
     window.dispatchEvent(new MouseEvent('mouseup'));
 
     expect(audio.oscillators[0].stopped).toBe(true);
+  });
+
+  it('keeps sounding while a second key still holds the same note', () => {
+    const { engine, audio } = setUpEngine();
+    engine.setVirtualInputEnabled(true);
+    const sounding = () => audio.oscillators.filter((o) => !o.stopped);
+
+    keydown('KeyK'); // C5 at the default octave
+    keydown('KeyX'); // up an octave, so KeyA is C5 too
+    keydown('KeyA');
+
+    keyup('KeyA');
+    expect(sounding()).not.toHaveLength(0);
+
+    keyup('KeyK');
+    expect(sounding()).toHaveLength(0);
+  });
+
+  it('keeps sounding while a key still holds the note a click let go of', () => {
+    const { engine, stub, audio } = setUpEngine();
+    engine.setVirtualInputEnabled(true);
+    engine.setKeyboardBand('piano');
+    const sounding = () => audio.oscillators.filter((o) => !o.stopped);
+
+    keydown('KeyZ');
+    keydown('KeyZ'); // down two octaves, so KeyA is C2: the leftmost Piano Preview key
+    keydown('KeyA');
+    stub.mouseX = 5;
+    stub.mouseY = engine.visualizationHeight + engine.chromaKeyHeight - 5;
+    stub.mousePressed?.();
+
+    window.dispatchEvent(new MouseEvent('mouseup'));
+    expect(sounding()).not.toHaveLength(0);
+
+    keyup('KeyA');
+    expect(sounding()).toHaveLength(0);
   });
 
   it('releases sounding voices when the Virtual Input is disabled', () => {
