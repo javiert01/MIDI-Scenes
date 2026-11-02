@@ -22,7 +22,7 @@ The main risk is that hand-rolling hasn't been built or heard yet. Prototype tic
 | **Velocity layers** | Write it (small) | No, gain only | Yes, `velRange` | No, gain only | Yes, from the bank |
 | **Sustain pedal** | Write it (small) | No | No (`setCC(64)` only stores a value) | No | Yes, CC64 |
 | **Per-sample loops** | Native | None in stable; one loop per Sampler in `next` | Yes, per region | Yes, per zone | Yes, from the bank |
-| **Voice stealing** | Write it (small) | None | Merged, not released | Reuses envelopes, no cap found | Yes, default cap 350 |
+| **Voice stealing** | Write it (small) | None | Merged, not released | None (only recycles finished envelopes) | Yes, default cap 350 |
 | **Firefox and Safari** | Native APIs, all supported | Shimmed | Safari branch, no open bugs | Plain Web Audio | AudioWorklet; see below |
 | **Code added (min / gzip)** | Est. 2-4 KB gzip, not built | 237 / 61 KB root; 161 / 45 KB subpath | 66 / 22 KB | 126 / 43 KB, unminified build not tree-shaken | 237 / 93 KB plus 594 / 189 KB worklet |
 | **Licence** | n/a | MIT | MIT (declared only) | GPL-3.0-or-later | Apache-2.0 |
