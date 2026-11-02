@@ -285,6 +285,9 @@ export class VisualizerEngine {
   // detect "a note just happened" via useSyncExternalStore, without the
   // engine tracking any note-specific state itself.
   private noteActivityTick = 0;
+  // MIDI access can resolve after destroy() (StrictMode destroys the first engine
+  // while the permission is still pending), and must then wire nothing.
+  private destroyed = false;
 
   constructor(container: HTMLElement, options: VisualizerEngineOptions = {}) {
     const width = options.width ?? RESOLUTION_PRESETS[DEFAULT_PRESET].width;
@@ -815,6 +818,7 @@ export class VisualizerEngine {
 
   /** Stops the draw loop and removes the p5 canvas. Call on unmount. */
   destroy(): void {
+    this.destroyed = true;
     this.activeScene?.teardown();
     this.synth.dispose();
     this.unwireActiveDevice();
@@ -847,6 +851,8 @@ export class VisualizerEngine {
     this.p.resizeCanvas(preset.width, preset.height);
     // Crystal columns are relative to the old width; drop them so none linger off-column.
     this.crystals.reset();
+    // A note still held keeps its lit key and owes a release, so it restarts at its new column.
+    for (const note of this.heldNotes) this.crystals.noteOn(note, preset.width);
     return true;
   }
 
@@ -909,8 +915,11 @@ export class VisualizerEngine {
 
   private async initMidi(createMidi: MidiFactory): Promise<void> {
     try {
-      this.midiAccess = await createMidi();
+      const access = await createMidi();
+      if (this.destroyed) return;
+      this.midiAccess = access;
     } catch {
+      if (this.destroyed) return;
       this.midiAccess = null;
       this.midiStatusState = 'unavailable';
       this.notify();
@@ -978,10 +987,14 @@ export class VisualizerEngine {
     if (parsed.type === 'noteon') {
       this.deviceHeldNotes.set(note, holds + 1);
       this.dispatchNoteOn(parsed.event);
-    } else {
+    } else if (holds > 0) {
       if (holds > 1) this.deviceHeldNotes.set(note, holds - 1);
       else this.deviceHeldNotes.delete(note);
       this.dispatchNoteOff(parsed.event);
+    } else {
+      // A key pressed before this Device was wired: this Device holds nothing here
+      // to release, so it must not take the hold of a source that does.
+      this.announceNoteOff(parsed.event);
     }
   }
 
@@ -1008,21 +1021,23 @@ export class VisualizerEngine {
   }
 
   private dispatchNoteOff(event: NoteEvent): void {
-    const ctx = this.buildContext(this.p.millis() - this.sceneStartMillis, 0);
     // Mirror of dispatchNoteOn: only the last source releasing a note number cuts
     // the engine's Overlay state, so one source releasing never darkens a note
-    // another still holds (see ADR-0005). An unmatched note-off (no tracked hold)
-    // still reaches the Scene and activity tick, as it did before refcounting.
-    const holds = this.noteHolds.get(event.note);
-    if (holds !== undefined) {
-      if (holds > 1) {
-        this.noteHolds.set(event.note, holds - 1);
-      } else {
-        this.noteHolds.delete(event.note);
-        this.crystals.noteOff(event.note);
-        this.heldNotes.delete(event.note);
-      }
+    // another still holds (see ADR-0005).
+    const holds = this.noteHolds.get(event.note) ?? 0;
+    if (holds > 1) {
+      this.noteHolds.set(event.note, holds - 1);
+    } else {
+      this.noteHolds.delete(event.note);
+      this.crystals.noteOff(event.note);
+      this.heldNotes.delete(event.note);
     }
+    this.announceNoteOff(event);
+  }
+
+  /** The per-event half of a note-off, which an unmatched note-off still gets: the Scene and activity tick. */
+  private announceNoteOff(event: NoteEvent): void {
+    const ctx = this.buildContext(this.p.millis() - this.sceneStartMillis, 0);
     this.activeScene?.onNoteOff(event, ctx);
     this.noteActivityTick += 1;
     this.notify();
@@ -1066,7 +1081,14 @@ export class VisualizerEngine {
     if (note === undefined) return;
     this.virtualHeldKeys.delete(event.code);
     this.dispatchNoteOff(this.makeNoteEvent(note, 0));
-    this.synth.noteOff(note);
+    this.releaseSynthNote(note);
+  }
+
+  /** Silences `note` once neither Virtual Input surface holds it: the synth has one voice per note, shared by both. */
+  private releaseSynthNote(note: number): void {
+    const stillHeld =
+      this.virtualMouseNote === note || [...this.virtualHeldKeys.values()].includes(note);
+    if (!stillHeld) this.synth.noteOff(note);
   }
 
   /** Resolves the note under the cursor on the Piano Preview, gated by the enable flag + preview visibility. */
@@ -1086,11 +1108,12 @@ export class VisualizerEngine {
   /** Moves the mouse-held note to `note` (or none), releasing the old note and pressing the new — the glissando seam. */
   private setMouseNote(note: number | null): void {
     if (note === this.virtualMouseNote) return;
-    if (this.virtualMouseNote !== null) {
-      this.dispatchNoteOff(this.makeNoteEvent(this.virtualMouseNote, 0));
-      this.synth.noteOff(this.virtualMouseNote);
-    }
+    const previous = this.virtualMouseNote;
     this.virtualMouseNote = note;
+    if (previous !== null) {
+      this.dispatchNoteOff(this.makeNoteEvent(previous, 0));
+      this.releaseSynthNote(previous);
+    }
     if (note !== null) {
       this.dispatchNoteOn(this.makeNoteEvent(note, VIRTUAL_INPUT_RAW_VELOCITY));
       this.synth.noteOn(note);

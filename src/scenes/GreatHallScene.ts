@@ -474,7 +474,11 @@ export class GreatHallScene implements Scene {
     for (const owl of this.owls) updateOwl(owl, bounds, ctx.elapsed);
     for (const candle of this.candles) updateCandle(candle);
 
-    if (ctx.params.lightning !== false && ctx.elapsed >= this.nextFlashAt) {
+    if (ctx.params.lightning === false) {
+      // Keep the next flash ahead of the clock, or it would fall due while switched
+      // off and fire the moment the toggle came back on.
+      this.nextFlashAt = Math.max(this.nextFlashAt, ctx.elapsed + LIGHTNING_MIN_INTERVAL_MS);
+    } else if (ctx.elapsed >= this.nextFlashAt) {
       this.flashStartedAt = ctx.elapsed;
       this.nextFlashAt =
         ctx.elapsed + randomRange(LIGHTNING_MIN_INTERVAL_MS, LIGHTNING_MAX_INTERVAL_MS);
