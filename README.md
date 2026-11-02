@@ -11,15 +11,24 @@ built for recording alongside piano-hands footage.
   - **Underwater**: fish and jellyfish that dart, glow, and pulse with your
     playing's velocity and position on the keyboard
   - **Starfield**: a reactive starfield
+  - **Rain**: falling rain and ripples, with a new drop at each key you press
+  - **Great Hall**: candles, clouds, and owls, where each note flares the
+    candle nearest its key
   - **No Scene**: just the background and Overlays, for a minimal composition
-- **Crystals** — a glowing shaft grows from the column under whichever key
-  you're holding, on every Scene (purple on the left half of the keyboard,
-  orange on the right)
-- **Piano Preview** — an optional on-screen keyboard that lights up as you
-  play, letting you judge a recording's composition before you actually record
-  your hands
-- **Chroma Key band** — a green strip along the bottom of the canvas, ready to
-  key out in your video editor and replace with piano-hands footage
+- **Crystals** — a luminous glass rod grows from the column under whichever key
+  you're holding, on every Scene, then falls and dissolves into rising Dust
+  when you let go (purple on the left half of the keyboard and orange on the
+  right, or colors of your choice)
+- **Keyboard band** — the bottom of the canvas shows one of:
+  - **Piano Preview** (the default): an on-screen keyboard that lights up as
+    you play, letting you judge a recording's composition before you actually
+    record your hands
+  - **Chroma Key**: a green strip, ready to key out in your video editor and
+    replace with piano-hands footage
+  - **None**: nothing in the band
+- **Virtual Input** — play without a MIDI keyboard, using your computer keyboard
+  or by clicking keys on the Piano Preview, with an optional synth so you can
+  hear the notes
 - **Present Mode** — hide the sidebar for a clean, fullscreen view when
   recording or performing
 - Every setting (Scene, sidebar toggles, resolution, MIDI device) is
@@ -28,8 +37,8 @@ built for recording alongside piano-hands footage.
 ## Getting started
 
 You'll need a modern browser with Web MIDI support (Chrome, Edge, or Opera —
-see [Browser support](#browser-support) below) and a MIDI keyboard or
-controller.
+see [Browser support](#browser-support) below). A MIDI keyboard or controller is
+optional, since the Virtual Input can play notes without one.
 
 ```bash
 npm install
@@ -41,25 +50,32 @@ playing.
 
 ## Using it
 
-- **Scenes** sidebar section switches the active visualization
-- **Chroma Key**, **Crystals**, and **Piano Preview** sections toggle those
-  Overlays and (where relevant) their opacity
+- **Scene** switches the active visualization and tunes its parameters
+- **Input** covers both ways of playing:
+  - **MIDI Device** lets you pick which connected keyboard the app listens to
+  - **Virtual Input** turns on playing without a device: `A S D F G H J K` are
+    white keys, `W E T Y U` are black keys, and `Z` / `X` shift the octave. Its
+    **Sound** toggle controls the synth, which only sounds Virtual Input notes
+- **Overlays** covers what's drawn independently of the Scene:
+  - **Crystals** sets their visibility, opacity, and left and right colors
+  - **Keyboard band** chooses None, Piano Preview, or Chroma Key
 - **Resolution** switches the canvas between preset sizes for recording
-- **MIDI Device** lets you pick which connected keyboard the app listens to
-- **Present Mode** hides the sidebar; press Escape or use the exit button to
-  bring it back
+- **Present** hides the sidebar; press Escape or use the exit button to bring it
+  back
 
 ### Recording with piano-hands footage
 
-1. Turn on **Piano Preview** to check your framing before you record for real
-2. Record the app in Present Mode (screen capture) and your hands separately
+1. Set the **Keyboard band** to **Piano Preview** to check your framing before
+   you record for real
+2. Switch the **Keyboard band** to **Chroma Key**, then record the app in Present
+   Mode (screen capture) and your hands separately
 3. In your video editor, chroma-key out the green band and composite your
    hands footage into it
 
 ## Browser support
 
-Web MIDI is required, so **Chrome, Edge, and Opera** work out of the box.
-Firefox and Safari don't support it natively.
+A MIDI keyboard needs Web MIDI, so **Chrome, Edge, and Opera** work out of the
+box. Firefox and Safari don't support it natively.
 
 ## Development
 
