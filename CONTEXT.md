@@ -91,7 +91,8 @@ which Scene the render loop calls — the canvas itself is never torn down.
 
 **Device**:
 A connected MIDI input (a keyboard/controller), enumerated and hot-plug-tracked so
-the user can pick one from the sidebar.
+the user can pick one from the sidebar. The pick is saved by name: while that Device
+is away another stands in, and it takes over again as soon as it reconnects.
 _Avoid_: Controller (ambiguous with UI/code controllers), input, instrument.
 
 **Virtual Input**:

@@ -26,7 +26,7 @@ describe('parseExpansion', () => {
     expect(parseExpansion(raw)).toEqual({ scene: true, overlays: false });
   });
 
-  it('falls back to defaults for an object with no usable boolean entries', () => {
+  it('ignores an object with no usable boolean entries', () => {
     expect(parseExpansion(JSON.stringify({ foo: 123, bar: 'x' }))).toEqual(DEFAULT_EXPANSION);
     expect(parseExpansion('{}')).toEqual(DEFAULT_EXPANSION);
   });
@@ -39,8 +39,8 @@ describe('parseExpansion', () => {
 });
 
 describe('isExpanded', () => {
-  it('treats a missing id as collapsed', () => {
-    expect(isExpanded({}, 'anything')).toBe(false);
+  it('treats a missing id as expanded, so nothing starts hidden from a new user', () => {
+    expect(isExpanded(DEFAULT_EXPANSION, 'anything')).toBe(true);
   });
 
   it('reflects the stored boolean', () => {
@@ -50,8 +50,8 @@ describe('isExpanded', () => {
 });
 
 describe('toggleExpansion', () => {
-  it('opens a previously-absent (collapsed) id', () => {
-    expect(toggleExpansion({}, 'overlays')).toEqual({ overlays: true });
+  it('collapses a previously-absent (expanded) id', () => {
+    expect(toggleExpansion({}, 'overlays')).toEqual({ overlays: false });
   });
 
   it('flips an existing value', () => {

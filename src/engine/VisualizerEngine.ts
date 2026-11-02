@@ -13,12 +13,18 @@ import { PreviewSynth, type AudioContextFactory } from './previewSynth';
 /** Fixed velocity (0–127) every synthetic Virtual Input note carries; see ADR-0005. */
 const VIRTUAL_INPUT_RAW_VELOCITY = 100;
 
+/**
+ * Inputs with no use for letter keys. A click leaves focus on them, so treating
+ * them as text entry would silence the Virtual Input right after touching a control.
+ */
+const NON_TEXT_INPUT_TYPES = new Set(['checkbox', 'radio', 'range', 'color', 'button']);
+
 /** Whether a DOM node is a text-entry target, so Virtual Input keys don't fire while typing. */
 function isEditableTarget(target: EventTarget | null): boolean {
-  const el = target as { tagName?: string; isContentEditable?: boolean } | null;
+  const el = target as { tagName?: string; type?: string; isContentEditable?: boolean } | null;
   if (!el || !el.tagName) return false;
   return (
-    el.tagName === 'INPUT' ||
+    (el.tagName === 'INPUT' && !NON_TEXT_INPUT_TYPES.has(el.type ?? '')) ||
     el.tagName === 'SELECT' ||
     el.tagName === 'TEXTAREA' ||
     el.isContentEditable === true
@@ -51,6 +57,10 @@ function rgbToHex([r, g, b]: readonly [number, number, number]): string {
 
 const DEFAULT_CRYSTAL_LEFT_COLOR = rgbToHex(CRYSTAL_COLORS.left);
 const DEFAULT_CRYSTAL_RIGHT_COLOR = rgbToHex(CRYSTAL_COLORS.right);
+const DEFAULT_CRYSTALS_VISIBLE = true;
+const DEFAULT_CRYSTALS_OPACITY = 1;
+const DEFAULT_VIRTUAL_INPUT_ENABLED = false;
+const DEFAULT_SOUND_ENABLED = true;
 
 /** Single versioned key holding the whole remembered setup (Scene, params, Device, etc). */
 export const STORAGE_KEY = 'midiviz.v1';
@@ -133,6 +143,9 @@ export interface DeviceDescriptor {
   label: string;
 }
 
+/** Whether Devices can be listed at all: awaiting access, have it, or refused/unsupported. */
+export type MidiStatus = 'connecting' | 'ready' | 'unavailable';
+
 export interface VisualizerEngineOptions {
   width?: number;
   height?: number;
@@ -208,21 +221,21 @@ export class VisualizerEngine {
   // Chroma Key green occupy the same band, so they are one mutually-exclusive
   // choice rather than two independent booleans (see issue #22).
   private keyboardBandState: KeyboardBand = DEFAULT_KEYBOARD_BAND;
-  private crystalsVisibleState = true;
-  private crystalsOpacityState = 1;
+  private crystalsVisibleState = DEFAULT_CRYSTALS_VISIBLE;
+  private crystalsOpacityState = DEFAULT_CRYSTALS_OPACITY;
   private crystalsLeftColorState = DEFAULT_CRYSTAL_LEFT_COLOR;
   private crystalsRightColorState = DEFAULT_CRYSTAL_RIGHT_COLOR;
 
   // The Virtual Input: synthetic notes from the computer keyboard and Piano
   // Preview clicks, gated by one enable flag (see ADR-0005). Both surfaces feed
   // the same dispatch core a real Device does.
-  private virtualInputEnabledState = false;
+  private virtualInputEnabledState = DEFAULT_VIRTUAL_INPUT_ENABLED;
   private virtualOctaveShift = 0;
   // The Preview Synth voices the Virtual Input's surfaces (keyboard + Piano
   // Preview clicks), hooked at those surfaces rather than the source-agnostic
   // dispatch core so a real Device never sounds (ADR-0007). Its own enable flag
   // tracks `soundEnabled && virtualInputEnabled` via syncSynthEnabled().
-  private soundEnabledState = true;
+  private soundEnabledState = DEFAULT_SOUND_ENABLED;
   private readonly synth: PreviewSynth;
   // Physical key code -> the exact note it triggered, so keyup releases that same
   // note even after an octave shift, and so cleanup releases only virtual notes.
@@ -248,8 +261,14 @@ export class VisualizerEngine {
   private readonly noteHolds = new Map<number, number>();
 
   private readonly storage?: Storage;
+  private settingsSaveCountState = 0;
+  private settingsSaveFailedState = false;
   private midiAccess: MidiAccessLike | null = null;
+  private midiStatusState: MidiStatus = 'connecting';
   private selectedDeviceId: string | null = null;
+  // How many note-ons the selected Device has outstanding per note number, so
+  // they can be released if it goes away mid-hold and its note-offs never come.
+  private readonly deviceHeldNotes = new Map<number, number>();
   // The user's remembered Device preference, by name: set on an explicit
   // selectDevice()/restore() call, consulted whenever Devices (re)connect. A
   // hot-unplug never clears this, so the preference survives the Device
@@ -312,7 +331,10 @@ export class VisualizerEngine {
         // A valid snapshot fully decides the Active Scene (a real Scene, or No
         // Scene from a null activeSceneId). Only a first-ever load with nothing
         // valid persisted defaults to the first Scene.
-        if (!restored && !this.activeScene) this.activateFirstScene();
+        if (!restored && !this.activeScene) {
+          this.activateFirstScene();
+          this.notify();
+        }
       };
       p.draw = () => {
         this.renderFrame(p);
@@ -392,6 +414,35 @@ export class VisualizerEngine {
 
   get activeDeviceId(): string | null {
     return this.selectedDeviceId;
+  }
+
+  get midiStatus(): MidiStatus {
+    return this.midiStatusState;
+  }
+
+  /** The Device the user explicitly picked, by name, whether or not it is connected right now. */
+  get savedDeviceName(): string | null {
+    return this.rememberedDeviceName;
+  }
+
+  /** Bumped on every successful save, so the sidebar can confirm a change was kept. */
+  get settingsSaveCount(): number {
+    return this.settingsSaveCountState;
+  }
+
+  /** Whether the latest save failed (storage blocked or full); changes then last only this visit. */
+  get settingsSaveFailed(): boolean {
+    return this.settingsSaveFailedState;
+  }
+
+  /** Whether every Crystals setting still has its default value. */
+  get crystalsAtDefaults(): boolean {
+    return (
+      this.crystalsVisibleState === DEFAULT_CRYSTALS_VISIBLE &&
+      this.crystalsOpacityState === DEFAULT_CRYSTALS_OPACITY &&
+      this.crystalsLeftColorState === DEFAULT_CRYSTAL_LEFT_COLOR &&
+      this.crystalsRightColorState === DEFAULT_CRYSTAL_RIGHT_COLOR
+    );
   }
 
   /** Which Overlay fills the shared keyboard band: `'none'`, `'piano'`, or `'chroma'`. */
@@ -490,6 +541,7 @@ export class VisualizerEngine {
       if (!this.activeScene) return;
       this.deactivateScene();
       this.persist();
+      this.notify();
       return;
     }
     if (id === this.activeScene?.id) return;
@@ -497,6 +549,56 @@ export class VisualizerEngine {
     if (!scene) return;
     this.activateScene(scene);
     this.persist();
+    this.notify();
+  }
+
+  /** Restores one Scene's params to their defaults. */
+  resetSceneParams(sceneId: string): void {
+    const scene = this.registry.get(sceneId);
+    if (!scene) return;
+    this.paramValues.set(sceneId, defaultParamValues(scene.params));
+    if (scene === this.activeScene) this.cachedParams = this.computeActiveParams();
+    this.persist();
+    this.notify();
+  }
+
+  /** Restores the Crystals' visibility, opacity and colors to their defaults. */
+  resetCrystals(): void {
+    this.applyDefaultCrystals();
+    this.persist();
+    this.notify();
+  }
+
+  /**
+   * Restores every setting to its first-load default, including the Active
+   * Scene. The saved Device stays: it describes the user's hardware, and the
+   * next plug-in would only have to reselect it.
+   */
+  resetAllSettings(): void {
+    for (const scene of this.registry.list()) {
+      this.paramValues.set(scene.id, defaultParamValues(scene.params));
+    }
+    this.applyDefaultCrystals();
+    if (this.keyboardBandState === 'piano') this.setMouseNote(null);
+    this.keyboardBandState = DEFAULT_KEYBOARD_BAND;
+    this.applyResolutionPreset(DEFAULT_PRESET);
+    if (this.virtualInputEnabledState) this.releaseVirtualNotes();
+    this.virtualInputEnabledState = DEFAULT_VIRTUAL_INPUT_ENABLED;
+    this.soundEnabledState = DEFAULT_SOUND_ENABLED;
+    this.syncSynthEnabled();
+    if (this.registry.list().length > 0) this.activateFirstScene();
+    else this.deactivateScene();
+    this.cachedParams = this.computeActiveParams();
+    this.persist();
+    this.notify();
+  }
+
+  private applyDefaultCrystals(): void {
+    this.crystalsVisibleState = DEFAULT_CRYSTALS_VISIBLE;
+    this.crystalsOpacityState = DEFAULT_CRYSTALS_OPACITY;
+    this.crystalsLeftColorState = DEFAULT_CRYSTAL_LEFT_COLOR;
+    this.crystalsRightColorState = DEFAULT_CRYSTAL_RIGHT_COLOR;
+    this.applyCrystalColors();
   }
 
   /**
@@ -755,7 +857,6 @@ export class VisualizerEngine {
     this.lastFrameMillis = this.sceneStartMillis;
     scene.setup(this.buildContext(0, 0));
     this.cachedParams = this.computeActiveParams();
-    this.notify();
   }
 
   /** Activates the first registered Scene, if any. A no-op if it is already active. */
@@ -770,7 +871,6 @@ export class VisualizerEngine {
     this.activeScene.teardown();
     this.activeScene = null;
     this.cachedParams = [];
-    this.notify();
   }
 
   private computeActiveParams(): ActiveParam[] {
@@ -785,7 +885,14 @@ export class VisualizerEngine {
   }
 
   private persist(): void {
-    this.storage?.setItem(STORAGE_KEY, JSON.stringify(this.serialize()));
+    try {
+      this.storage?.setItem(STORAGE_KEY, JSON.stringify(this.serialize()));
+      this.settingsSaveFailedState = false;
+      this.settingsSaveCountState += 1;
+    } catch {
+      // Storage blocked or full: the change still applies, for this visit only.
+      this.settingsSaveFailedState = true;
+    }
   }
 
   /** Remembers `name` as the Device preference and reconciles against Devices already connected. */
@@ -805,8 +912,11 @@ export class VisualizerEngine {
       this.midiAccess = await createMidi();
     } catch {
       this.midiAccess = null;
+      this.midiStatusState = 'unavailable';
+      this.notify();
       return;
     }
+    this.midiStatusState = 'ready';
     this.unsubscribeDeviceChange = this.midiAccess.onDeviceChange(() => this.syncDevices());
     this.syncDevices();
   }
@@ -817,15 +927,19 @@ export class VisualizerEngine {
     this.cachedDevices = inputs.map(({ id, name }) => ({ id, label: name }));
     const stillPresent = inputs.some((input) => input.id === this.selectedDeviceId);
     if (this.selectedDeviceId && !stillPresent) {
+      this.releaseDeviceNotes();
       this.unwireActiveDevice();
     }
 
-    if (!this.selectedDeviceId) {
-      const preferred = this.rememberedDeviceName
-        ? inputs.find((input) => input.name === this.rememberedDeviceName)
-        : undefined;
-      const nextId = preferred ? preferred.id : inputs[0]?.id;
-      if (nextId) this.wireDevice(nextId);
+    // The saved Device wins whenever it is present, so one that reconnects takes
+    // over again from a fallback chosen while it was away.
+    const preferred = this.rememberedDeviceName
+      ? inputs.find((input) => input.name === this.rememberedDeviceName)
+      : undefined;
+    if (preferred) {
+      if (preferred.id !== this.selectedDeviceId) this.wireDevice(preferred.id);
+    } else if (!this.selectedDeviceId && inputs[0]) {
+      this.wireDevice(inputs[0].id);
     }
 
     this.notify();
@@ -834,9 +948,18 @@ export class VisualizerEngine {
   // Only called once midiAccess has resolved (initMidi/syncDevices/selectDevice all guard it).
   private wireDevice(id: string): void {
     if (!this.midiAccess) return;
+    this.releaseDeviceNotes();
     this.unwireActiveDevice();
     this.selectedDeviceId = id;
     this.unsubscribeMessage = this.midiAccess.onMessage(id, (data) => this.handleRawMessage(data));
+  }
+
+  /** Ends every note the outgoing Device still holds, as its note-offs will never arrive. */
+  private releaseDeviceNotes(): void {
+    for (const [note, holds] of this.deviceHeldNotes) {
+      for (let i = 0; i < holds; i += 1) this.dispatchNoteOff(this.makeNoteEvent(note, 0));
+    }
+    this.deviceHeldNotes.clear();
   }
 
   // Leaves rememberedDeviceName untouched: an unplug is transient, and the
@@ -850,8 +973,16 @@ export class VisualizerEngine {
   private handleRawMessage(data: number[]): void {
     const parsed = parseNoteMessage(data);
     if (!parsed) return;
-    if (parsed.type === 'noteon') this.dispatchNoteOn(parsed.event);
-    else this.dispatchNoteOff(parsed.event);
+    const { note } = parsed.event;
+    const holds = this.deviceHeldNotes.get(note) ?? 0;
+    if (parsed.type === 'noteon') {
+      this.deviceHeldNotes.set(note, holds + 1);
+      this.dispatchNoteOn(parsed.event);
+    } else {
+      if (holds > 1) this.deviceHeldNotes.set(note, holds - 1);
+      else this.deviceHeldNotes.delete(note);
+      this.dispatchNoteOff(parsed.event);
+    }
   }
 
   // The single note-dispatch core: real Device messages and the Virtual Input's
