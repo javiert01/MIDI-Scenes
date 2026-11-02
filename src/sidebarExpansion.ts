@@ -1,22 +1,20 @@
-// UI-only accordion expansion state for the sidebar. Kept out of the engine on
+// UI-only expansion state for the sidebar's sections. Kept out of the engine on
 // purpose (ADR 0002): the engine core stays framework-agnostic, so which
-// sidebar groups/sections are open lives here and persists to its own
+// sections are open lives here and persists to its own
 // localStorage key managed by React — never in the engine's domain state.
 
 export type ExpansionState = Record<string, boolean>;
 
-export const SIDEBAR_EXPANSION_KEY = 'midi-visualizer:sidebar-expansion';
+// Versioned: the old key stored a nested accordion where an absent id meant
+// collapsed, and carrying that over would keep sections hidden from returning users.
+export const SIDEBAR_EXPANSION_KEY = 'midi-visualizer:sidebar-expansion.v2';
 
-// First-ever load: SCENE group open with its Scene picker visible; everything
-// else collapsed (absent id === collapsed).
-export const DEFAULT_EXPANSION: ExpansionState = {
-  scene: true,
-  'scene:picker': true,
-};
+// Every section starts open so a first-time user sees everything they can
+// change; only an explicit collapse is stored (absent id === expanded).
+export const DEFAULT_EXPANSION: ExpansionState = {};
 
 // Restore persisted expansion, falling back to defaults when nothing is stored
-// or the payload is malformed. A valid object is trusted verbatim (so an
-// all-collapsed state survives reload); only boolean entries are kept.
+// or the payload is malformed. Only boolean entries are kept.
 export function parseExpansion(raw: string | null): ExpansionState {
   if (raw == null) return { ...DEFAULT_EXPANSION };
   try {
@@ -28,19 +26,16 @@ export function parseExpansion(raw: string | null): ExpansionState {
     for (const [key, value] of Object.entries(parsed)) {
       if (typeof value === 'boolean') clean[key] = value;
     }
-    // A real persisted state always carries at least one boolean entry (toggling
-    // adds one and never removes it), so an object with none is corrupt junk —
-    // fall back to defaults rather than loading everything collapsed.
-    return Object.keys(clean).length > 0 ? clean : { ...DEFAULT_EXPANSION };
+    return clean;
   } catch {
     return { ...DEFAULT_EXPANSION };
   }
 }
 
 export function isExpanded(state: ExpansionState, id: string): boolean {
-  return Boolean(state[id]);
+  return state[id] ?? true;
 }
 
 export function toggleExpansion(state: ExpansionState, id: string): ExpansionState {
-  return { ...state, [id]: !state[id] };
+  return { ...state, [id]: !isExpanded(state, id) };
 }

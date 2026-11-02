@@ -50,18 +50,26 @@ playing.
 
 ## Using it
 
-- **Scene** switches the active visualization and tunes its parameters
+The card at the top of the sidebar always shows whether a MIDI keyboard is
+connected, and says so when one is plugged in or unplugged. The sections below it
+start open, and each shows its current value even when collapsed:
+
+- **Scene** switches the active visualization and tunes its options
+- **Crystals** sets their visibility, opacity, and left and right colors
+- **Keyboard band** chooses Piano Preview, Chroma Key, or None
 - **Input** covers both ways of playing:
-  - **MIDI Device** lets you pick which connected keyboard the app listens to
-  - **Virtual Input** turns on playing without a device: `A S D F G H J K` are
-    white keys, `W E T Y U` are black keys, and `Z` / `X` shift the octave. Its
+  - **MIDI keyboards** lets you pick which connected keyboard the app listens to.
+    Your pick is remembered and takes over again whenever it reconnects
+  - **Virtual Input** turns on playing without a MIDI keyboard: `A S D F G H J K`
+    are white keys, `W E T Y U` are black keys, and `Z` / `X` shift the octave. Its
     **Sound** toggle controls the synth, which only sounds Virtual Input notes
-- **Overlays** covers what's drawn independently of the Scene:
-  - **Crystals** sets their visibility, opacity, and left and right colors
-  - **Keyboard band** chooses None, Piano Preview, or Chroma Key
-- **Resolution** switches the canvas between preset sizes for recording
+- **Canvas size** switches the canvas between preset sizes for recording
 - **Present** hides the sidebar; press Escape or use the exit button to bring it
   back
+
+Changes save automatically in your browser, and the sidebar's footer confirms each
+one. **Reset** restores a Scene's options or the Crystals, and **Reset all** restores
+every setting except your saved MIDI keyboard.
 
 ### Recording with piano-hands footage
 

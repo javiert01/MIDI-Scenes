@@ -2480,3 +2480,301 @@ describe('VisualizerEngine Preview Synth wiring (T25)', () => {
     expect(engine.soundEnabled).toBe(true);
   });
 });
+
+describe('VisualizerEngine sidebar support: Device status', () => {
+  const deviceA: MidiInputLike = { id: 'dev-a', name: 'Keyboard A' };
+  const deviceB: MidiInputLike = { id: 'dev-b', name: 'Keyboard B' };
+  const NOTE_ON = 0x90;
+  const NOTE_OFF = 0x80;
+
+  function setUp(midi: FakeMidiAccess, scene = new FakeScene('a', 'Scene A')) {
+    const { factory } = stubP5Factory();
+    const engine = new VisualizerEngine(document.createElement('div'), {
+      createP5: factory,
+      createMidi: fakeMidiFactory(midi),
+      storage: new FakeStorage(),
+      scenes: [scene],
+    });
+    return { engine, scene };
+  }
+
+  it('reports connecting until MIDI access resolves, then ready', async () => {
+    const { engine } = setUp(new FakeMidiAccess([deviceA]));
+    expect(engine.midiStatus).toBe('connecting');
+
+    await flushMicrotasks();
+
+    expect(engine.midiStatus).toBe('ready');
+  });
+
+  it('reports unavailable and tells subscribers when MIDI access is refused', async () => {
+    const { factory } = stubP5Factory();
+    const engine = new VisualizerEngine(document.createElement('div'), {
+      createP5: factory,
+      createMidi: () => Promise.reject(new Error('denied')),
+      storage: new FakeStorage(),
+    });
+    const listener = vi.fn();
+    engine.subscribe(listener);
+
+    await flushMicrotasks();
+
+    expect(engine.midiStatus).toBe('unavailable');
+    expect(listener).toHaveBeenCalled();
+  });
+
+  it('exposes the saved Device name while that Device is unplugged', async () => {
+    const midi = new FakeMidiAccess([deviceA, deviceB]);
+    const { engine } = setUp(midi);
+    await flushMicrotasks();
+    engine.selectDevice('dev-b');
+
+    midi.setInputs([deviceA]);
+
+    expect(engine.savedDeviceName).toBe('Keyboard B');
+    expect(engine.activeDeviceId).toBe('dev-a');
+  });
+
+  it('switches back to the saved Device when it reconnects after a fallback', async () => {
+    const midi = new FakeMidiAccess([deviceA, deviceB]);
+    const { engine } = setUp(midi);
+    await flushMicrotasks();
+    engine.selectDevice('dev-b');
+    midi.setInputs([deviceA]);
+
+    midi.setInputs([deviceA, deviceB]);
+
+    expect(engine.activeDeviceId).toBe('dev-b');
+  });
+
+  it('stays on the active Device when another connects and none was explicitly saved', async () => {
+    const midi = new FakeMidiAccess([deviceA]);
+    const { engine } = setUp(midi);
+    await flushMicrotasks();
+
+    midi.setInputs([deviceB, deviceA]);
+
+    expect(engine.activeDeviceId).toBe('dev-a');
+  });
+
+  it('releases notes the Device was holding when it is unplugged', async () => {
+    const midi = new FakeMidiAccess([deviceA]);
+    const { engine, scene } = setUp(midi);
+    await flushMicrotasks();
+    midi.emit('dev-a', [NOTE_ON, 60, 100]);
+
+    midi.setInputs([]);
+
+    expect(scene.onNoteOff).toHaveBeenCalledTimes(1);
+    expect((scene.onNoteOff.mock.calls[0][0] as NoteEvent).note).toBe(60);
+    expect(engine.activeDeviceId).toBeNull();
+  });
+
+  it('releases notes the old Device was holding when switching Device', async () => {
+    const midi = new FakeMidiAccess([deviceA, deviceB]);
+    const { engine, scene } = setUp(midi);
+    await flushMicrotasks();
+    midi.emit('dev-a', [NOTE_ON, 60, 100]);
+
+    engine.selectDevice('dev-b');
+
+    expect(scene.onNoteOff).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not re-release a note the Device already let go of', async () => {
+    const midi = new FakeMidiAccess([deviceA]);
+    const { scene } = setUp(midi);
+    await flushMicrotasks();
+    midi.emit('dev-a', [NOTE_ON, 60, 100]);
+    midi.emit('dev-a', [NOTE_OFF, 60, 0]);
+
+    midi.setInputs([]);
+
+    expect(scene.onNoteOff).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('VisualizerEngine sidebar support: Virtual Input focus', () => {
+  function setUp() {
+    const { factory } = stubP5Factory();
+    const scene = new FakeScene('a', 'Scene A');
+    const engine = new VisualizerEngine(document.createElement('div'), {
+      createP5: factory,
+      createMidi: fakeMidiFactory(new FakeMidiAccess()),
+      storage: new FakeStorage(),
+      scenes: [scene],
+    });
+    engine.setVirtualInputEnabled(true);
+    return { engine, scene };
+  }
+
+  function pressWhileFocused(element: HTMLElement) {
+    document.body.appendChild(element);
+    element.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyA', bubbles: true }));
+    element.remove();
+  }
+
+  it.each(['checkbox', 'radio', 'range', 'color'])(
+    'plays notes while a %s control has focus, as it does right after being clicked',
+    (type) => {
+      const { engine, scene } = setUp();
+      const input = document.createElement('input');
+      input.type = type;
+
+      pressWhileFocused(input);
+
+      expect(scene.onNoteOn).toHaveBeenCalledTimes(1);
+      engine.destroy();
+    },
+  );
+
+  it('still ignores keys while a select has focus, since it uses them for type-ahead', () => {
+    const { engine, scene } = setUp();
+
+    pressWhileFocused(document.createElement('select'));
+
+    expect(scene.onNoteOn).not.toHaveBeenCalled();
+    engine.destroy();
+  });
+});
+
+describe('VisualizerEngine sidebar support: keeping and resetting settings', () => {
+  function rangeScene(id: string): FakeScene {
+    const scene = new FakeScene(id, `Scene ${id}`);
+    scene.params.push({
+      key: 'count',
+      label: 'Count',
+      type: 'range',
+      default: 5,
+      min: 0,
+      max: 10,
+      step: 1,
+    });
+    return scene;
+  }
+
+  function setUp(storage: Storage = new FakeStorage()) {
+    const { factory } = stubP5Factory();
+    const scenes = [rangeScene('a'), rangeScene('b')];
+    const engine = new VisualizerEngine(document.createElement('div'), {
+      createP5: factory,
+      createMidi: fakeMidiFactory(new FakeMidiAccess()),
+      storage,
+      scenes,
+    });
+    return { engine, scenes, storage };
+  }
+
+  it('counts each successful save, including switching Scene', () => {
+    const { engine } = setUp();
+    const before = engine.settingsSaveCount;
+    const listener = vi.fn();
+    engine.subscribe(listener);
+
+    engine.selectScene('b');
+    const afterScene = engine.settingsSaveCount;
+    listener.mockClear();
+    engine.setCrystalsOpacity(0.5);
+
+    expect(afterScene).toBe(before + 1);
+    expect(engine.settingsSaveCount).toBe(before + 2);
+    expect(engine.settingsSaveFailed).toBe(false);
+    expect(listener).toHaveBeenCalled();
+  });
+
+  it('tells subscribers about the save when switching Scene', () => {
+    const { engine } = setUp();
+    const seen: number[] = [];
+    engine.subscribe(() => seen.push(engine.settingsSaveCount));
+    const before = engine.settingsSaveCount;
+
+    engine.selectScene('b');
+
+    expect(seen.at(-1)).toBe(before + 1);
+  });
+
+  it('reports a failed save instead of throwing when storage is unavailable', () => {
+    const storage = new FakeStorage();
+    const { engine } = setUp(storage);
+    vi.spyOn(storage, 'setItem').mockImplementation(() => {
+      throw new Error('quota');
+    });
+
+    expect(() => engine.setCrystalsOpacity(0.5)).not.toThrow();
+
+    expect(engine.settingsSaveFailed).toBe(true);
+    expect(engine.crystalsOpacity).toBe(0.5);
+  });
+
+  it('resetSceneParams restores one Scene and leaves the others alone', () => {
+    const { engine } = setUp();
+    engine.setParam('a', 'count', 9);
+    engine.setParam('b', 'count', 2);
+
+    engine.resetSceneParams('a');
+
+    expect(engine.params[0].value).toBe(5);
+    expect(engine.serialize().paramValues.b.count).toBe(2);
+  });
+
+  it('resetCrystals restores visibility, opacity and colors, and reports being at defaults', () => {
+    const { engine } = setUp();
+    expect(engine.crystalsAtDefaults).toBe(true);
+    engine.setCrystalsVisible(false);
+    engine.setCrystalsOpacity(0.2);
+    engine.setCrystalsLeftColor('#112233');
+    engine.setCrystalsRightColor('#445566');
+    expect(engine.crystalsAtDefaults).toBe(false);
+
+    engine.resetCrystals();
+
+    expect(engine.crystalsVisible).toBe(true);
+    expect(engine.crystalsOpacity).toBe(1);
+    expect(engine.crystalsAtDefaults).toBe(true);
+  });
+
+  it('resetAllSettings restores first-load defaults and persists them', () => {
+    const { engine, storage } = setUp();
+    engine.selectScene('b');
+    engine.setParam('a', 'count', 9);
+    engine.setParam('b', 'count', 2);
+    engine.setKeyboardBand('chroma');
+    engine.setCrystalsOpacity(0.2);
+    engine.setResolutionPreset('1920x1080');
+    engine.setVirtualInputEnabled(true);
+    engine.setSoundEnabled(false);
+
+    engine.resetAllSettings();
+
+    expect(engine.activeSceneId).toBe('a');
+    expect(engine.params[0].value).toBe(5);
+    expect(engine.serialize().paramValues.b.count).toBe(5);
+    expect(engine.keyboardBand).toBe('piano');
+    expect(engine.crystalsOpacity).toBe(1);
+    expect(engine.resolutionPreset).toBe('1600x800');
+    expect(engine.virtualInputEnabled).toBe(false);
+    expect(engine.soundEnabled).toBe(true);
+    expect(JSON.parse(storage.getItem(STORAGE_KEY)!).keyboardBand).toBe('piano');
+  });
+
+  it('resetAllSettings keeps the saved Device, which is hardware rather than a preference to undo', async () => {
+    const { factory } = stubP5Factory();
+    const midi = new FakeMidiAccess([
+      { id: 'dev-a', name: 'Keyboard A' },
+      { id: 'dev-b', name: 'Keyboard B' },
+    ]);
+    const engine = new VisualizerEngine(document.createElement('div'), {
+      createP5: factory,
+      createMidi: fakeMidiFactory(midi),
+      storage: new FakeStorage(),
+      scenes: [rangeScene('a')],
+    });
+    await flushMicrotasks();
+    engine.selectDevice('dev-b');
+
+    engine.resetAllSettings();
+
+    expect(engine.activeDeviceId).toBe('dev-b');
+    expect(engine.savedDeviceName).toBe('Keyboard B');
+  });
+});
