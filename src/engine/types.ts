@@ -17,11 +17,16 @@ export interface P5Like {
   strokeWeight(weight: number): void;
   background(...args: number[]): void;
   fill(...args: number[]): void;
+  noFill(): void;
   /** p5's `rect`, including its optional corner radii (one for every corner, or one per corner). */
   rect(x: number, y: number, w: number, h: number, ...radii: number[]): void;
   line(x1: number, y1: number, x2: number, y2: number): void;
   ellipse(x: number, y: number, w: number, h: number): void;
   triangle(x1: number, y1: number, x2: number, y2: number, x3: number, y3: number): void;
+  beginShape(): void;
+  vertex(x: number, y: number): void;
+  /** p5's `endShape`; pass p5's `CLOSE` constant (`'close'`) to join the last vertex to the first. */
+  endShape(mode?: string): void;
   text(str: string, x: number, y: number): void;
   textAlign(horizAlign: string, vertAlign?: string): void;
   textSize(size: number): void;

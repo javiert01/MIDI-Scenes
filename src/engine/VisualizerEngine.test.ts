@@ -72,6 +72,22 @@ class StubP5 implements P5Like {
     this.calls.push({ name: 'fill', args });
   }
 
+  noFill() {
+    this.calls.push({ name: 'noFill', args: [] });
+  }
+
+  beginShape() {
+    this.calls.push({ name: 'beginShape', args: [] });
+  }
+
+  vertex(x: number, y: number) {
+    this.calls.push({ name: 'vertex', args: [x, y] });
+  }
+
+  endShape(mode?: string) {
+    this.calls.push({ name: 'endShape', args: [mode] });
+  }
+
   rect(x: number, y: number, w: number, h: number) {
     this.calls.push({ name: 'rect', args: [x, y, w, h] });
   }
@@ -1700,6 +1716,27 @@ describe('VisualizerEngine Piano Preview Overlay (T18)', () => {
     const firstLabelIndex = stub.calls.findIndex((c) => c.name === 'text');
     expect(sceneRectIndex).toBeGreaterThanOrEqual(0);
     expect(firstLabelIndex).toBeGreaterThan(sceneRectIndex);
+  });
+
+  it('paints the Chroma Key green over any Scene bleed, keeping the band keyable', async () => {
+    const scene = new FakeScene('a', 'Scene A');
+    scene.draw.mockImplementation((ctx: SceneContext) => {
+      ctx.p.rect(1, 2, 3, 4); // stand-in for Scene bleed into the Chroma Key band
+    });
+    const { engine, stub } = await setUpEngine([scene]);
+    engine.setKeyboardBand('chroma');
+
+    stub.calls = [];
+    stub.draw?.();
+
+    const sceneRectIndex = stub.calls.findIndex(
+      (c) => c.name === 'rect' && (c.args as number[])[0] === 1 && (c.args as number[])[1] === 2,
+    );
+    const greenRectIndex = stub.calls.findIndex(
+      (c) => c.name === 'rect' && (c.args as number[])[1] === engine.visualizationHeight,
+    );
+    expect(sceneRectIndex).toBeGreaterThanOrEqual(0);
+    expect(greenRectIndex).toBeGreaterThan(sceneRectIndex);
   });
 
   it('persists the keyboard band across serialize()/restore()', async () => {
