@@ -1138,11 +1138,6 @@ export class VisualizerEngine {
 
   private renderFrame(p: P5Like): void {
     p.background(BACKGROUND_GRAY);
-    if (this.keyboardBandState === 'chroma') {
-      p.noStroke();
-      p.fill(...CHROMA_KEY_GREEN);
-      p.rect(0, this.visualizationHeight, this.width, this.chromaKeyHeight);
-    }
 
     // Crystals advance every frame, independent of whether a Scene is active,
     // so the Overlay keeps living on No Scene. Visibility goes in because the
@@ -1168,7 +1163,16 @@ export class VisualizerEngine {
     }
 
     // Drawn last: covers the Active Scene, any Scene bleed into the band, and Crystals.
+    this.renderChromaKey();
     this.renderPianoPreview();
+  }
+
+  /** Fills the keyboard band with the Chroma Key green, unless another band is selected. */
+  private renderChromaKey(): void {
+    if (this.keyboardBandState !== 'chroma') return;
+    this.p.noStroke();
+    this.p.fill(...CHROMA_KEY_GREEN);
+    this.p.rect(0, this.visualizationHeight, this.width, this.chromaKeyHeight);
   }
 
   /** Draws the Piano Preview Overlay filling the keyboard band, unless another band is selected. */
