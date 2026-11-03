@@ -769,17 +769,22 @@ const lat = {
     }
     const msPerHop = (hop / rate) * 1000;
     const max = env.reduce((a, b) => Math.max(a, b), 0);
-    const sound = env.findIndex((v) => v >= 0.5 * max);
+    // An onset is a sharp rise: well above the average of the 5–10 ms before it.
+    const before = (i, n) => {
+      let sum = 0;
+      for (let j = Math.max(0, i - n); j < i; j++) sum += env[j];
+      return sum / Math.max(1, Math.min(n, i));
+    };
+    const rises = (i, n) => env[i] > 4 * before(i, n) + 1e-5;
+    let sound = env.findIndex((v, i) => v >= 0.3 * max && rises(i, 20));
+    if (sound < 0) sound = env.findIndex((v) => v >= 0.3 * max);
     const head = [...env.slice(0, Math.floor(60 / msPerHop))].sort((a, b) => a - b);
     const floor = head[Math.floor(head.length / 2)] || 1e-4;
-    const thr = Math.max(floor * 6, 0.01 * max);
+    const thr = Math.max(floor * 4, 0.005 * max);
+    // The key bottoms out shortly before the sound: look no further back than 120 ms.
     let thump = -1;
-    for (
-      let i = Math.max(0, sound - Math.floor(250 / msPerHop));
-      i < sound - Math.floor(1 / msPerHop);
-      i++
-    ) {
-      if (env[i] > thr) {
+    for (let i = Math.max(1, sound - Math.floor(120 / msPerHop)); i < sound - Math.floor(2 / msPerHop); i++) {
+      if (env[i] > thr && rises(i, 10)) {
         thump = i;
         break;
       }
