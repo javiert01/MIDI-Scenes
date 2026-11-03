@@ -199,6 +199,33 @@
         color: var(--muted);
         font-size: 12px;
       }
+      .knob {
+        display: grid;
+        grid-template-columns: 190px 1fr 110px;
+        gap: 8px;
+        align-items: center;
+        margin: 2px 0;
+      }
+      .knob output {
+        font-variant-numeric: tabular-nums;
+        font-size: 12px;
+      }
+      .dim {
+        opacity: 0.55;
+      }
+      .edge {
+        display: inline-flex;
+        gap: 6px;
+        align-items: center;
+        margin-right: 14px;
+      }
+      tr.sel td {
+        background: var(--accent-soft);
+      }
+      textarea {
+        width: 100%;
+        font: 12px/1.35 ui-monospace, monospace;
+      }
       kbd {
         border: 1px solid var(--line);
         border-bottom-width: 2px;
@@ -212,15 +239,21 @@
     <main>
       <h1>Tone Audition</h1>
       <p class="lede">
-        Prototype for <a href="https://github.com/javiert01/MIDI-Scenes/issues/45">#45</a>.
-        <b>The question:</b> on a real keyboard, is each candidate Tone recognisable, and does it
-        respond quickly enough to play comfortably? Pick a Tone and play it. Velocity, sustain pedal
-        and pitch bend all work. Readouts show which sample answered, the voice count against the
-        32-voice cap, what the Tone costs in memory, and how long a key takes to sound.
+        Prototype for
+        <a href="https://github.com/javiert01/MIDI-Scenes/issues/50"
+          >How loud is each Tone, and do Tones share a reverb?</a
+        >
+        (built on #45's audition page). <b>The question:</b> what fixed gain does each Tone get,
+        balanced against Warm Analog at a typical velocity, and is reverb shared, per Tone, or
+        none? Also: fine-tune Villera Lead D, settle the Rock Organ, set the guitar's EQ tilt, and
+        check every Tone at C2 and B6. Samples are prepared in the browser to the settings of
+        <a href="https://github.com/javiert01/MIDI-Scenes/issues/49">#49</a>.
       </p>
       <div class="banner">
-        <b>Throwaway.</b> Nothing here is production code. Samples are the original FLAC/WAV files.
-        The MP3 figures are estimates at 128 kbps stereo.
+        <b>Throwaway.</b> Nothing here is production code. Samples are the original FLAC/WAV files,
+        prepared in the browser: trim to −48 dBFS, piano v4/v12/v16 in even thirds with 5 s tails,
+        a 2 s equal-power strings loop, the organ's left and right files merged, and every Tone
+        widened to cover C2–B6. Your settings are kept in this browser between reloads.
       </div>
 
       <div class="grid">
@@ -231,54 +264,39 @@
           </section>
 
           <section class="card">
-            <h2>Shaping the selected Tone</h2>
-            <div class="row" id="optLayers">
-              <label class="opt"
-                >Piano velocity layers
-                <select id="layers">
-                  <option value="1">1 (v12)</option>
-                  <option value="2">2 (v8, v16)</option>
-                  <option value="3">3 (v4, v12, v16)</option>
-                  <option value="4" selected>4 (v4, v8, v12, v16)</option>
-                </select>
-              </label>
-            </div>
+            <h2>Level and reverb</h2>
             <div class="row">
               <label class="opt"
-                >Tail cap
-                <select id="tailCap">
-                  <option value="0">off (full files)</option>
-                  <option value="8" selected>8 s</option>
-                  <option value="5">5 s</option>
-                  <option value="3">3 s</option>
-                </select>
-              </label>
-              <label class="opt"
-                ><input type="checkbox" id="trim" checked /> Trim leading silence</label
-              >
-              <label class="opt"
-                ><input type="checkbox" id="bakeLoop" checked /> Strings: bake a crossfade
-                loop</label
-              >
-              <label class="opt"
-                >crossfade
-                <select id="xfade">
-                  <option value="0.5" selected>0.5 s</option>
-                  <option value="1.5">1.5 s</option>
-                  <option value="3">3 s</option>
-                </select></label
+                ><input type="checkbox" id="ab" /> A/B: play Warm Analog instead
+                <kbd>`</kbd></label
               >
             </div>
             <div class="row">
               <label class="opt"
-                >Level trim
+                >Fixed gain for <b id="trimFor"></b>
                 <input type="range" id="trimDb" min="-18" max="12" step="0.5" value="0" />
                 <span id="trimDbOut">0 dB</span></label
               >
+            </div>
+            <div class="row">
               <label class="opt"
-                >Shared reverb
-                <input type="range" id="reverb" min="0" max="0.6" step="0.02" value="0" />
-                <span id="reverbOut">off</span></label
+                >Reverb
+                <select id="reverbMode">
+                  <option value="off">none</option>
+                  <option value="shared">shared: one send for every Tone</option>
+                  <option value="perTone">per Tone: a send kept per Tone</option>
+                </select></label
+              >
+              <label class="opt"
+                >send <input type="range" id="reverb" min="0" max="0.6" step="0.02" value="0" />
+                <span id="reverbOut">off</span> <span class="hint" id="reverbFor"></span></label
+              >
+              <label class="opt"
+                >space
+                <select id="reverbIr">
+                  <option value="1.2">1.2 s room</option>
+                  <option value="2.2">2.2 s hall</option>
+                </select></label
               >
             </div>
             <div class="row">
@@ -305,17 +323,59 @@
               </label>
             </div>
             <p class="hint">
-              Level trim is kept per Tone, so you can balance loudness by ear. Shared reverb is one
-              reverb for every Tone, not per-Tone character.
+              The fixed gain is kept per Tone. With the A/B on, the slider sets Warm Analog's gain.
+              The reverb send sits after the fixed gain.
             </p>
+          </section>
+
+          <section class="card">
+            <h2>Loudness balance</h2>
+            <div class="row">
+              <label class="opt"
+                >Reference velocity
+                <select id="refVel">
+                  <option value="64">64</option>
+                  <option value="80">80</option>
+                  <option value="96">96</option>
+                  <option value="112">112</option>
+                </select></label
+              >
+              <button id="measure">Measure this Tone</button>
+              <button class="primary" id="measureAll">Measure every Tone</button>
+              <button id="applySuggested">Use the suggested gains</button>
+              <span class="hint" id="measureState"></span>
+            </div>
+            <table id="loudTable">
+              <thead>
+                <tr>
+                  <th>Tone</th>
+                  <th>Loudness before gain</th>
+                  <th>Suggested gain</th>
+                  <th>Gain now</th>
+                  <th>Phrase peak at output</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+            <p class="hint">
+              <span id="loudRef"></span> Each measurement renders the same phrase offline (C3, C4,
+              C5, then a C4–E4–G4 triad) at the reference velocity, with no reverb, and reads its
+              approximate K-weighted gated loudness. The suggested gain matches Warm Analog. It's a
+              starting point: settle each gain by ear.
+            </p>
+          </section>
+
+          <section class="card">
+            <h2>Board edges (selected Tone)</h2>
+            <div id="edges"></div>
+            <p class="hint" id="edgeFlags"></p>
           </section>
 
           <section class="card">
             <h2>Memory and download (selected Tone, as it would ship)</h2>
             <dl class="kv" id="mem"></dl>
             <p class="hint">
-              Budget from the delivery research: about 240 s of stereo per Tone (≈ 92 MB decoded at
-              48 kHz). The map's bar is "a few MB" of download.
+              Budget from #45: about 450 s of stereo and up to about 7 MiB per Tone.
             </p>
           </section>
         </div>
@@ -345,6 +405,91 @@
               <button id="panic">All notes off</button>
               <button id="resetCounters">Reset counters</button>
             </div>
+          </section>
+
+          <section class="card" data-for="guitar">
+            <h2>Overdriven Guitar: EQ tilt on the baked Clean side, from C4</h2>
+            <div class="row">
+              <label class="opt"
+                >Tilt
+                <input type="range" id="tilt" min="-8" max="8" step="0.5" value="0" />
+                <span id="tiltOut">0 dB</span></label
+              >
+              <label class="opt"
+                >pivot
+                <select id="pivot">
+                  <option value="800">800 Hz</option>
+                  <option value="1200">1.2 kHz</option>
+                  <option value="2000">2 kHz</option>
+                </select></label
+              >
+            </div>
+            <p class="hint" id="seam"></p>
+            <p class="hint">
+              Positive tilts brighten (half the dB as a high-shelf lift, half as a low-shelf cut).
+              The tilt is baked into each Clean note after the drive, then the seam level is matched
+              again. Play B3 against C4 to compare.
+            </p>
+          </section>
+
+          <section class="card" data-for="villera">
+            <h2>Villera Lead: fine-tune variant D</h2>
+            <div id="villera"></div>
+            <div class="row"><button id="villeraReset">Back to D</button></div>
+            <p class="hint">Towards the cumbia villera keyboard lead: more nasal and brighter.</p>
+          </section>
+
+          <section class="card" data-for="organ organ-synth">
+            <h2>Rock Organ options</h2>
+            <div id="organKnobs"></div>
+            <div class="row">
+              <label class="opt"
+                >percussion harmonic
+                <select id="percHarm">
+                  <option value="2">2nd</option>
+                  <option value="3">3rd</option>
+                </select></label
+              >
+              <label class="opt"
+                >decay
+                <select id="percDecay">
+                  <option value="0.25">fast</option>
+                  <option value="0.6">slow</option>
+                </select></label
+              >
+              <label class="opt"
+                >rotary
+                <select id="rotary">
+                  <option value="off">off</option>
+                  <option value="slow">slow (chorale)</option>
+                  <option value="fast">fast (tremolo)</option>
+                </select></label
+              >
+            </div>
+            <div class="row">
+              <label class="opt"
+                >Synth drawbars (Rock Organ, synth only)
+                <select id="registration">
+                  <option value="888000000">88 8000 000: classic rock</option>
+                  <option value="888800000">88 8800 000: fuller</option>
+                  <option value="808000008">80 8000 008: gospel bite</option>
+                  <option value="888888888">88 8888 888: full organ</option>
+                </select></label
+              >
+            </div>
+            <div class="row"><button id="organReset">Reset options</button></div>
+            <p class="hint">
+              These apply to both organ Tones. #45 rejected light drive plus a fast rotary together;
+              here each is separate. Percussion and key click are synthesised and added to each note.
+            </p>
+          </section>
+
+          <section class="card">
+            <h2>Settings to record</h2>
+            <div class="row">
+              <button id="copyExport">Copy settings</button> <span class="hint" id="copyState"></span>
+            </div>
+            <textarea id="export" rows="8" readonly></textarea>
           </section>
 
           <section class="card">

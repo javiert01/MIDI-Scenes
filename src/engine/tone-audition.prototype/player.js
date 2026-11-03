@@ -1,4 +1,4 @@
-// PROTOTYPE (#45), throwaway. The hand-rolled Tone Player under audition: one
+// PROTOTYPE (#45, extended for #50), throwaway. The hand-rolled Tone Player under audition: one
 // envelope gain per voice over whatever the Tone starts inside it, with the
 // sustain pedal, ±N semitone pitch bend, a voice cap with the stealing order
 // from #46, and retriggering a note the pedal holds. No DOM in here; the page
@@ -176,19 +176,14 @@ export function sampledTone({
   const playable = regions.filter((r) => !r.release);
   const releases = regions.filter((r) => r.release);
 
+  // #49: a note outside every region's key range stays silent (the page widens the
+  // outermost regions to cover the C2–B6 board first). Inside the key range, the
+  // velocity layer that matches answers.
   function pick(pool, note, velocity) {
-    let hits = pool.filter(
-      (r) => note >= r.lo && note <= r.hi && velocity >= r.vlo && velocity <= r.vhi,
-    );
-    if (!hits.length) {
-      const inVel = pool.filter((r) => velocity >= r.vlo && velocity <= r.vhi);
-      const from = inVel.length ? inVel : pool;
-      const nearest = from.reduce((a, b) =>
-        Math.abs(b.key - note) < Math.abs(a.key - note) ? b : a,
-      );
-      hits = from.filter((r) => r.key === nearest.key);
-    }
-    return hits;
+    const inKey = pool.filter((r) => note >= r.lo && note <= r.hi);
+    if (!inKey.length) return [];
+    const hits = inKey.filter((r) => velocity >= r.vlo && velocity <= r.vhi);
+    return hits.length ? hits : inKey;
   }
 
   function play(ctx, hits, note, velocity, when, bendCents, out, extraGain = 1) {
@@ -228,6 +223,9 @@ export function sampledTone({
     attack,
     start(ctx, note, velocity, when, bendCents, out) {
       const hits = pick(playable, note, velocity);
+      if (!hits.length) {
+        return { detunes: [], info: { keycentre: null, stretch: 0, silent: true }, stop() {} };
+      }
       const sources = play(ctx, hits, note, velocity, when, bendCents, out);
       const r0 = hits[0];
       return {
@@ -372,9 +370,10 @@ export const VILLERA_VARIANTS = {
   },
 };
 
+/** variant: a letter from VILLERA_VARIANTS, or a full parameter object (the #50 fine-tuning). */
 export function villeraLead(variant = 'A') {
-  const v = VILLERA_VARIANTS[variant];
-  return synthTone(`villera-${variant}`, 0.12, (ctx, note, velocity, when, bend, out) => {
+  const v = typeof variant === 'string' ? VILLERA_VARIANTS[variant] : variant;
+  return synthTone(`villera`, 0.12, (ctx, note, velocity, when, bend, out) => {
     const f = midiToFrequency(note);
     const amp = ctx.createGain();
     const level = 0.11 * (0.55 + 0.45 * (velocity / 127));
@@ -386,7 +385,7 @@ export function villeraLead(variant = 'A') {
     peak.gain.value = v.peakDb;
     const lp = biquad(ctx, 'lowpass', v.lp, 0.8);
     hp.connect(peak);
-    if (v.peak2) {
+    if (v.peak2 && v.peak2Db) {
       const peak2 = biquad(ctx, 'peaking', v.peak2, 2.5);
       peak2.gain.value = v.peak2Db;
       peak.connect(peak2);
@@ -412,7 +411,7 @@ export function villeraLead(variant = 'A') {
       g.connect(hp);
       const o = osc(ctx, type, f, cents + bend, g, when);
       if (v.glide) {
-        o.frequency.setValueAtTime(f * 2 ** (-1 / 12), when);
+        o.frequency.setValueAtTime(f * 2 ** (-(v.glideSemis ?? 1) / 12), when);
         o.frequency.exponentialRampToValueAtTime(f, when + v.glide);
       }
       depth.connect(o.detune);
@@ -438,6 +437,91 @@ export function villeraLead(variant = 'A') {
     }
     return oscs;
   });
+}
+
+// --- Rock Organ candidates (#50) ---
+
+/** Hammond drawbar footages as harmonics of the played note: 16', 5⅓', 8', 4', 2⅔', 2', 1⅗', 1⅓', 1'. */
+const DRAWBAR_HARMONICS = [0.5, 1.5, 1, 2, 3, 4, 5, 6, 8];
+
+/** A synthesised tonewheel-style organ: one sine per drawbar, registration as a 9-digit string. */
+export function drawbarOrgan(registration = '888000000') {
+  const bars = [...registration].map(Number);
+  // Each drawbar step is about 3 dB; the sum of the bars' gains is normalised to 1.
+  const barGain = (b) => (b ? 10 ** (((b - 8) * 3) / 20) : 0);
+  const total = bars.reduce((a, b) => a + barGain(b), 0) || 1;
+  return synthTone(`organ-synth-${registration}`, 0.06, (ctx, note, velocity, when, bend, out) => {
+    const f = midiToFrequency(note);
+    const amp = ctx.createGain();
+    amp.gain.setValueAtTime(0, when);
+    amp.gain.linearRampToValueAtTime(0.16, when + 0.004);
+    amp.connect(out);
+    const oscs = [];
+    bars.forEach((b, i) => {
+      if (!b) return;
+      const hf = f * DRAWBAR_HARMONICS[i];
+      if (hf > 18000) return; // tonewheels fold back at the top; dropping is close enough here
+      const g = ctx.createGain();
+      g.gain.value = barGain(b) / total;
+      g.connect(amp);
+      oscs.push(osc(ctx, 'sine', hf, bend, g, when));
+    });
+    return oscs;
+  }, 0.003);
+}
+
+/**
+ * Hammond-style extras on any organ Tone: a decaying 2nd or 3rd harmonic "percussion" and a
+ * short key click at note start. opts: { perc: 0..1, percHarm: 2 | 3, percDecay: s, click: 0..1 }.
+ */
+export function withOrganExtras(tone, opts) {
+  if (!opts.perc && !opts.click) return tone;
+  return {
+    ...tone,
+    start(ctx, note, velocity, when, bendCents, out) {
+      const inner = tone.start(ctx, note, velocity, when, bendCents, out);
+      if (inner.info?.silent) return inner;
+      const extra = [];
+      if (opts.perc) {
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0, when);
+        g.gain.linearRampToValueAtTime(0.09 * opts.perc, when + 0.002);
+        g.gain.setTargetAtTime(0, when + 0.002, opts.percDecay / 4);
+        g.connect(out);
+        extra.push(osc(ctx, 'sine', midiToFrequency(note) * opts.percHarm, bendCents, g, when));
+      }
+      if (opts.click) {
+        const len = Math.floor(ctx.sampleRate * 0.006);
+        const b = ctx.createBuffer(1, len, ctx.sampleRate);
+        const d = b.getChannelData(0);
+        for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len) ** 2;
+        const src = ctx.createBufferSource();
+        src.buffer = b;
+        const bp = biquad(ctx, 'bandpass', 2500, 0.9);
+        const g = ctx.createGain();
+        g.gain.value = 0.25 * opts.click;
+        src.connect(bp);
+        bp.connect(g);
+        g.connect(out);
+        src.start(when);
+        extra.push(src);
+      }
+      return {
+        ...inner,
+        detunes: [...inner.detunes, ...extra.filter((o) => o.frequency).map((o) => o.detune)],
+        stop(t) {
+          inner.stop(t);
+          for (const o of extra) {
+            try {
+              o.stop(t);
+            } catch {
+              /* already stopped */
+            }
+          }
+        },
+      };
+    },
+  };
 }
 
 /** A sharp click for the acoustic latency test: a 1 ms full-scale burst. */
