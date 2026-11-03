@@ -240,7 +240,7 @@ def organ():
 
 
 if __name__ == "__main__":
-    which = sys.argv[2:] or ["piano", "strings", "guitar", "clean", "accordion", "organ"]
+    which = sys.argv[2:] or ["piano", "strings", "guitar", "clean", "dist1", "accordion", "organ"]
     if "accordion" in which:
         accordion()
     if "organ" in which:
@@ -251,6 +251,9 @@ if __name__ == "__main__":
     if "guitar" in which:
         guitar("guitar", "freepats/electric-guitar-FSBS-dist2", "EGuitarFSBS-dist2 bridge 20220911.sfz",
                "FreePats FSBS Electric Guitar Distorted #2, CC0. One round robin per layer.")
+    if "dist1" in which:
+        guitar("guitar-dist1", "freepats/electric-guitar-FSBS-dist1", "EGuitarFSBS-dist1 bridge 20220911.sfz",
+               "FreePats FSBS Electric Guitar Distorted #1, CC0. One round robin per layer.")
     if "strings" in which:
         strings()
     if "piano" in which:

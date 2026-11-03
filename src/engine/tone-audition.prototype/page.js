@@ -1,19 +1,125 @@
 // PROTOTYPE (#45), throwaway page shell around player.js: loading, sample
 // preparation, MIDI, readouts and the acoustic latency test.
-import { TonePlayer, sampledTone, warmAnalog, villeraLead, testClick, dbToGain, VILLERA_VARIANTS } from './player.js';
+import {
+  TonePlayer,
+  sampledTone,
+  warmAnalog,
+  villeraLead,
+  testClick,
+  dbToGain,
+  VILLERA_VARIANTS,
+} from './player.js';
 
 const $ = (id) => document.getElementById(id);
 
 const TONES = [
-  { id: 'warm', name: 'Warm Analog', genre: 'Default', synth: warmAnalog, set: "Today's Preview Synth. No download." },
-  { id: 'piano', name: 'Grand Piano', genre: 'Classical', dir: 'piano', releaseTime: 0.35, velTrack: 0.45, set: 'Salamander Grand Piano V3 (CC BY 3.0)' },
-  { id: 'strings', name: 'Strings', genre: 'Classical', dir: 'strings', releaseTime: 0.6, velTrack: 0.35, attack: 0.008, set: 'VSCO 2 CE, cello + violin sections (CC0)' },
-  { id: 'guitar', name: 'Overdriven Guitar', genre: 'Rock', dir: 'guitar', releaseTime: 0.25, velTrack: 0.3, set: 'FSBS Distorted #2, drive baked in (CC0)' },
-  { id: 'guitar-clean', name: 'Overdriven Guitar, B', genre: 'Rock', dir: 'guitar-clean', bus: 'drive', releaseTime: 0.25, velTrack: 0.5, set: 'FSBS Clean small + one shared drive (CC0)' },
-  { id: 'organ', name: 'Rock Organ', genre: 'Rock', dir: 'organ', releaseTime: 0.08, velTrack: 0, set: 'FreePats Rock Organ Emulation (CC0)' },
-  { id: 'accordion', name: 'Accordion', genre: 'Cumbia', dir: 'accordion', releaseTime: 0.13, velTrack: 0.4, attack: 0.03, set: 'FreePats Button Accordion HN (CC0)' },
-  ...Object.entries(VILLERA_VARIANTS).map(([k, v]) => ({ id: `villera-${k}`, name: `Villera Lead ${k}`, genre: 'Cumbia', synth: () => villeraLead(k), set: v.label.slice(3) })),
-  { id: 'click', name: 'Test click', genre: 'Latency test', synth: testClick, set: 'A 1 ms burst for the acoustic test' },
+  {
+    id: 'warm',
+    name: 'Warm Analog',
+    genre: 'Default',
+    synth: warmAnalog,
+    set: "Today's Preview Synth. No download.",
+  },
+  {
+    id: 'piano',
+    name: 'Grand Piano',
+    genre: 'Classical',
+    dir: 'piano',
+    releaseTime: 0.35,
+    velTrack: 0.45,
+    set: 'Salamander Grand Piano V3 (CC BY 3.0)',
+  },
+  {
+    id: 'strings',
+    name: 'Strings',
+    genre: 'Classical',
+    dir: 'strings',
+    releaseTime: 0.6,
+    velTrack: 0.35,
+    attack: 0.008,
+    set: 'VSCO 2 CE, cello + violin sections (CC0)',
+  },
+  {
+    id: 'guitar',
+    name: 'Overdriven Guitar',
+    genre: 'Rock',
+    dir: 'guitar',
+    releaseTime: 0.25,
+    velTrack: 0.3,
+    set: 'FSBS Distorted #2, drive baked in (CC0)',
+  },
+  {
+    id: 'guitar-clean',
+    name: 'Overdriven Guitar, B',
+    genre: 'Rock',
+    dir: 'guitar-clean',
+    bus: 'drive',
+    releaseTime: 0.25,
+    velTrack: 0.5,
+    set: 'FSBS Clean small + one shared drive (CC0)',
+  },
+  {
+    id: 'guitar-hybrid',
+    name: 'Overdriven Guitar, C',
+    genre: 'Rock',
+    dirs: ['guitar', 'guitar-clean'],
+    hybrid: 60,
+    releaseTime: 0.25,
+    velTrack: 0.35,
+    set: 'A below middle C; from middle C, B with the drive baked in per note',
+  },
+  {
+    id: 'guitar-dist1',
+    name: 'Overdriven Guitar, D',
+    genre: 'Rock',
+    dir: 'guitar-dist1',
+    releaseTime: 0.25,
+    velTrack: 0.3,
+    set: 'FSBS Distorted #1, drive baked in (CC0)',
+  },
+  {
+    id: 'organ',
+    name: 'Rock Organ',
+    genre: 'Rock',
+    dir: 'organ',
+    releaseTime: 0.08,
+    velTrack: 0,
+    set: 'FreePats Rock Organ Emulation (CC0)',
+  },
+  {
+    id: 'organ-rotary',
+    name: 'Rock Organ, B',
+    genre: 'Rock',
+    dir: 'organ',
+    bus: 'rotary',
+    releaseTime: 0.08,
+    velTrack: 0,
+    set: 'Same samples through light drive and a rotary speaker',
+  },
+  {
+    id: 'accordion',
+    name: 'Accordion',
+    genre: 'Cumbia',
+    dir: 'accordion',
+    releaseTime: 0.13,
+    velTrack: 0.4,
+    attack: 0.03,
+    set: 'FreePats Button Accordion HN (CC0)',
+  },
+  ...Object.entries(VILLERA_VARIANTS).map(([k, v]) => ({
+    id: `villera-${k}`,
+    name: `Villera Lead ${k}`,
+    genre: 'Cumbia',
+    synth: () => villeraLead(k),
+    set: v.label.slice(3),
+  })),
+  {
+    id: 'click',
+    name: 'Test click',
+    genre: 'Latency test',
+    synth: testClick,
+    set: 'A 1 ms burst for the acoustic test',
+  },
 ];
 
 const state = {
@@ -31,10 +137,11 @@ const state = {
 
 // ---------- audio graph ----------
 
-let ctx, player, master, analyser, toneBus, toneInput, driveIn, reverbSend, convolver;
+let ctx, player, master, analyser, toneBus, toneInput, driveIn, rotaryIn, reverbSend, convolver;
 
 function buildAudio(hint) {
-  const opts = hint === 'interactive' ? { latencyHint: 'interactive' } : { latencyHint: Number(hint) };
+  const opts =
+    hint === 'interactive' ? { latencyHint: 'interactive' } : { latencyHint: Number(hint) };
   ctx = new (window.AudioContext || window.webkitAudioContext)(opts);
   master = ctx.createGain();
   master.gain.value = 0.8;
@@ -80,8 +187,47 @@ function buildAudio(hint) {
   cab.connect(post);
   post.connect(toneBus);
 
+  // Rotary speaker for the organ: light drive, then two delays and gains wobbled in opposite phase.
+  rotaryIn = ctx.createGain();
+  rotaryIn.gain.value = 2.2;
+  const rShaper = ctx.createWaveShaper();
+  rShaper.curve = driveCurve(1.8);
+  const rPost = ctx.createGain();
+  rPost.gain.value = 0.5;
+  rotaryIn.connect(rShaper);
+  rShaper.connect(rPost);
+  const lfo = ctx.createOscillator();
+  lfo.frequency.value = 6.4;
+  lfo.start();
+  const merger = ctx.createChannelMerger(2);
+  [1, -1].forEach((sign, ch) => {
+    const delay = ctx.createDelay(0.02);
+    delay.delayTime.value = 0.004;
+    const dDepth = ctx.createGain();
+    dDepth.gain.value = 0.0008 * sign;
+    lfo.connect(dDepth);
+    dDepth.connect(delay.delayTime);
+    const amp = ctx.createGain();
+    amp.gain.value = 0.8;
+    const aDepth = ctx.createGain();
+    aDepth.gain.value = 0.2 * sign;
+    lfo.connect(aDepth);
+    aDepth.connect(amp.gain);
+    rPost.connect(delay);
+    delay.connect(amp);
+    amp.connect(merger, 0, ch);
+  });
+  merger.connect(toneBus);
+  const rDry = ctx.createGain();
+  rDry.gain.value = 0.35;
+  rPost.connect(rDry);
+  rDry.connect(toneBus);
+
   toneInput = ctx.createGain();
-  player = new TonePlayer(ctx, toneInput, { maxVoices: Number($('cap').value), bendRange: Number($('bendRange').value) });
+  player = new TonePlayer(ctx, toneInput, {
+    maxVoices: Number($('cap').value),
+    bendRange: Number($('bendRange').value),
+  });
   routeTone();
   applyCurrentTone();
   window.__proto = { ctx, player, state }; // for poking at it from the console
@@ -90,7 +236,7 @@ function buildAudio(hint) {
 function routeTone() {
   const def = TONES.find((t) => t.id === state.selected);
   toneInput.disconnect();
-  toneInput.connect(def.bus === 'drive' ? driveIn : toneBus);
+  toneInput.connect(def.bus === 'drive' ? driveIn : def.bus === 'rotary' ? rotaryIn : toneBus);
   toneBus.gain.value = dbToGain(state.trims[state.selected] ?? 0);
 }
 
@@ -110,7 +256,8 @@ function makeImpulse(seconds) {
   const pre = Math.floor(0.012 * ctx.sampleRate);
   for (let ch = 0; ch < 2; ch++) {
     const d = b.getChannelData(ch);
-    for (let i = pre; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.exp((-6.9 * (i - pre)) / len);
+    for (let i = pre; i < len; i++)
+      d[i] = (Math.random() * 2 - 1) * Math.exp((-6.9 * (i - pre)) / len);
   }
   return b;
 }
@@ -154,7 +301,16 @@ async function loadTone(def) {
   state.loading = def.id;
   const stall = startStallMonitor();
   const t0 = performance.now();
-  const map = await (await fetch(`./samples/${def.dir}/map.json`)).json();
+  const dirs = def.dirs ?? [def.dir];
+  const maps = await Promise.all(
+    dirs.map(async (d) => (await fetch(`./samples/${d}/map.json`)).json()),
+  );
+  const map = {
+    notes: maps.map((m) => m.notes).join(' '),
+    regions: maps.flatMap((m, i) =>
+      m.regions.map((r) => ({ ...r, part: dirs[i], file: `${dirs[i]}/${r.file}` })),
+    ),
+  };
   const files = [...new Set(map.regions.map((r) => r.file))];
   const decoded = new Map();
   let done = 0;
@@ -165,7 +321,7 @@ async function loadTone(def) {
   async function worker() {
     while (queue.length) {
       const file = queue.shift();
-      const res = await fetch(`./samples/${def.dir}/${encodeURIComponent(file)}`);
+      const res = await fetch(`./samples/${file.split('/').map(encodeURIComponent).join('/')}`);
       const ab = await res.arrayBuffer();
       firstByte ??= performance.now() - t0;
       bytes += ab.byteLength;
@@ -182,11 +338,78 @@ async function loadTone(def) {
   await Promise.all(Array.from({ length: 6 }, worker));
   const wallMs = performance.now() - t0;
   const stalls = stall.stop();
-  const regions = map.regions.map((r) => ({ ...r, ...decoded.get(r.file) }));
-  state.cache.set(def.id, { regions, notes: map.notes, stats: { files: files.length, bytes, wallMs, decodeMs, ...stalls } });
+  let regions = map.regions.map((r) => ({ ...r, ...decoded.get(r.file) }));
+  if (def.hybrid) regions = await buildHybrid(regions, def.hybrid);
+  state.cache.set(def.id, {
+    regions,
+    notes: map.notes,
+    stats: { files: files.length, bytes, wallMs, decodeMs, ...stalls },
+  });
   state.progress[def.id] = `ready, ${(wallMs / 1000).toFixed(1)} s`;
   state.loading = null;
   renderTones();
+}
+
+/**
+ * Guitar C: distorted samples below `split`, clean samples from `split` up with the shared
+ * drive rendered into each one offline (what sample preparation would do), level-matched at the split.
+ */
+async function buildHybrid(regions, split) {
+  const low = regions
+    .filter((r) => r.part === 'guitar' && r.lo < split)
+    .map((r) => ({ ...r, hi: Math.min(r.hi, split - 1) }));
+  const highRaw = regions
+    .filter((r) => r.part === 'guitar-clean' && r.hi >= split)
+    .map((r) => ({ ...r, lo: Math.max(r.lo, split) }));
+  const baked = new Map();
+  for (const r of highRaw) if (!baked.has(r.file)) baked.set(r.file, await bakeDrive(r.buffer));
+  const high = highRaw.map((r) => ({ ...r, buffer: baked.get(r.file), fileRate: null }));
+  const near = (pool, cmp) => pool.filter((r) => r.vhi >= 100).sort(cmp)[0] ?? pool.sort(cmp)[0];
+  const a = near(low, (x, y) => y.key - x.key);
+  const b = near(high, (x, y) => x.key - y.key);
+  const offset = 20 * Math.log10(rms(a.buffer) / rms(b.buffer));
+  return [...low, ...high.map((r) => ({ ...r, gainDb: r.gainDb + offset }))];
+}
+
+async function bakeDrive(buffer) {
+  const oc = new OfflineAudioContext(2, buffer.length, buffer.sampleRate);
+  const src = oc.createBufferSource();
+  src.buffer = buffer;
+  const pre = oc.createGain();
+  pre.gain.value = 5 * 0.85;
+  const shaper = oc.createWaveShaper();
+  shaper.curve = driveCurve(3.2);
+  shaper.oversample = '4x';
+  const hp = oc.createBiquadFilter();
+  hp.type = 'highpass';
+  hp.frequency.value = 90;
+  const mid = oc.createBiquadFilter();
+  mid.type = 'peaking';
+  mid.frequency.value = 900;
+  mid.Q.value = 0.8;
+  mid.gain.value = 4;
+  const cab = oc.createBiquadFilter();
+  cab.type = 'lowpass';
+  cab.frequency.value = 4600;
+  cab.Q.value = 0.9;
+  const post = oc.createGain();
+  post.gain.value = 0.28;
+  [src, pre, shaper, hp, mid, cab, post]
+    .reduce((x, y) => (x.connect(y), y))
+    .connect(oc.destination);
+  src.start();
+  return oc.startRendering();
+}
+
+/** RMS of the first 1.5 s, across channels. */
+function rms(buffer) {
+  const n = Math.min(buffer.length, Math.floor(1.5 * buffer.sampleRate));
+  let sum = 0;
+  for (let c = 0; c < buffer.numberOfChannels; c++) {
+    const d = buffer.getChannelData(c);
+    for (let i = 0; i < n; i++) sum += d[i] * d[i];
+  }
+  return Math.sqrt(sum / (n * buffer.numberOfChannels)) || 1e-6;
 }
 
 /** Sample rate stored in a FLAC or WAV header, so SFZ loop frames convert to seconds. */
@@ -214,7 +437,9 @@ function startStallMonitor() {
   const longTasks = [];
   let obs = null;
   try {
-    obs = new PerformanceObserver((list) => longTasks.push(...list.getEntries().map((e) => e.duration)));
+    obs = new PerformanceObserver((list) =>
+      longTasks.push(...list.getEntries().map((e) => e.duration)),
+    );
     obs.observe({ type: 'longtask', buffered: false });
   } catch {
     obs = null;
@@ -231,12 +456,21 @@ function startStallMonitor() {
     stop() {
       running = false;
       obs?.disconnect();
-      return { maxFrameGap: maxGap, longTasks: obs ? longTasks.length : null, longestTask: longTasks.length ? Math.max(...longTasks) : 0 };
+      return {
+        maxFrameGap: maxGap,
+        longTasks: obs ? longTasks.length : null,
+        longestTask: longTasks.length ? Math.max(...longTasks) : 0,
+      };
     },
   };
 }
 
-const PIANO_LAYERS = { 1: ['v12'], 2: ['v8', 'v16'], 3: ['v4', 'v12', 'v16'], 4: ['v4', 'v8', 'v12', 'v16'] };
+const PIANO_LAYERS = {
+  1: ['v12'],
+  2: ['v8', 'v16'],
+  3: ['v4', 'v12', 'v16'],
+  4: ['v4', 'v8', 'v12', 'v16'],
+};
 
 function applyCurrentTone() {
   const def = TONES.find((t) => t.id === state.selected);
@@ -256,7 +490,11 @@ function applyCurrentTone() {
       .filter((r) => active.includes(r.layer))
       .map((r) => {
         const i = active.indexOf(r.layer);
-        return { ...r, vlo: Math.floor((i * 127) / active.length) + 1, vhi: Math.floor(((i + 1) * 127) / active.length) };
+        return {
+          ...r,
+          vlo: Math.floor((i * 127) / active.length) + 1,
+          vhi: Math.floor(((i + 1) * 127) / active.length),
+        };
       });
   }
   const cap = Number($('tailCap').value);
@@ -297,7 +535,16 @@ function applyCurrentTone() {
     ...cached.stats,
   };
   state.prepared = { toneId: def.id, regions: prepared, mem };
-  player.setTone(sampledTone({ id: def.id, regions: prepared, releaseTime: def.releaseTime, velTrack: def.velTrack, attack: Number($('attack').value) > (def.attack ?? 0) ? Number($('attack').value) : def.attack }));
+  player.setTone(
+    sampledTone({
+      id: def.id,
+      regions: prepared,
+      releaseTime: def.releaseTime,
+      velTrack: def.velTrack,
+      attack:
+        Number($('attack').value) > (def.attack ?? 0) ? Number($('attack').value) : def.attack,
+    }),
+  );
   renderMem();
 }
 
@@ -308,7 +555,12 @@ function prepareBuffer(r, { cap, trim, bake }) {
   const chans = [...Array(src.numberOfChannels)].map((_, c) => src.getChannelData(c));
   const thr = 0.004; // about -48 dBFS
   let onset = 0;
-  outer: for (let i = 0; i < src.length; i++) for (const d of chans) if (Math.abs(d[i]) > thr) { onset = i; break outer; }
+  outer: for (let i = 0; i < src.length; i++)
+    for (const d of chans)
+      if (Math.abs(d[i]) > thr) {
+        onset = i;
+        break outer;
+      }
   const start = trim ? Math.max(0, onset - Math.floor(0.001 * rate)) : 0;
   const leadMs = (onset / rate) * 1000;
 
@@ -343,7 +595,8 @@ function prepareBuffer(r, { cap, trim, bake }) {
       const { a, b, xf } = bakeAt;
       for (let i = 0; i < xf; i++) {
         const t = i / xf;
-        o[b - xf + i - start] = d[b - xf + i] * Math.cos((t * Math.PI) / 2) + d[a - xf + i] * Math.sin((t * Math.PI) / 2);
+        o[b - xf + i - start] =
+          d[b - xf + i] * Math.cos((t * Math.PI) / 2) + d[a - xf + i] * Math.sin((t * Math.PI) / 2);
       }
     }
     for (let i = 0; i < fade; i++) o[len - fade + i] *= 1 - i / fade;
@@ -383,7 +636,8 @@ function onMidi(data, ts) {
   } else if (cmd === 8 || cmd === 9) player.noteOff(data[1], startTime(ts));
   else if (cmd === 11 && data[1] === 64) player.pedal(data[2] >= 64, startTime(ts));
   else if (cmd === 11 && (data[1] === 123 || data[1] === 120)) player.allOff();
-  else if (cmd === 14) player.bend(Math.max(-1, (((data[2] << 7) | data[1]) - 8192) / 8191), ctx.currentTime);
+  else if (cmd === 14)
+    player.bend(Math.max(-1, (((data[2] << 7) | data[1]) - 8192) / 8191), ctx.currentTime);
   midi.lastMsg = [...data].map((b) => b.toString(16).padStart(2, '0')).join(' ');
 }
 
@@ -453,7 +707,12 @@ const lat = {
   async arm() {
     if (this.armed) return;
     const stream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 },
+      audio: {
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
+        channelCount: 1,
+      },
     });
     await this.attach(stream);
     this.stream = stream;
@@ -463,7 +722,9 @@ const lat = {
 
   async attach(stream) {
     const code = `class Rec extends AudioWorkletProcessor { process(inputs) { const ch = inputs[0][0]; if (ch) this.port.postMessage({ t: currentTime, d: ch.slice(0) }); return true; } } registerProcessor('rec', Rec);`;
-    await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([code], { type: 'application/javascript' })));
+    await ctx.audioWorklet.addModule(
+      URL.createObjectURL(new Blob([code], { type: 'application/javascript' })),
+    );
     const src = ctx.createMediaStreamSource(stream);
     const rec = new AudioWorkletNode(ctx, 'rec');
     const mute = ctx.createGain();
@@ -473,14 +734,19 @@ const lat = {
     mute.connect(ctx.destination);
     rec.port.onmessage = (e) => {
       this.blocks.push(e.data);
-      const keep = 3 * ctx.sampleRate / 128;
+      const keep = (3 * ctx.sampleRate) / 128;
       if (this.blocks.length > keep) this.blocks.splice(0, this.blocks.length - keep);
     };
   },
 
   onStrike(when, wait) {
     if (!this.armed || this.pending) return;
-    this.pending = { when, wait, tone: TONES.find((t) => t.id === state.selected).name, config: `${$('output').value} / ${$('hint').value} / ${$('sched').value}` };
+    this.pending = {
+      when,
+      wait,
+      tone: TONES.find((t) => t.id === state.selected).name,
+      config: `${$('output').value} / ${$('hint').value} / ${$('sched').value}`,
+    };
     setTimeout(() => this.analyse(), 650);
   },
 
@@ -508,10 +774,25 @@ const lat = {
     const floor = head[Math.floor(head.length / 2)] || 1e-4;
     const thr = Math.max(floor * 6, 0.01 * max);
     let thump = -1;
-    for (let i = Math.max(0, sound - Math.floor(250 / msPerHop)); i < sound - Math.floor(1 / msPerHop); i++) {
-      if (env[i] > thr) { thump = i; break; }
+    for (
+      let i = Math.max(0, sound - Math.floor(250 / msPerHop));
+      i < sound - Math.floor(1 / msPerHop);
+      i++
+    ) {
+      if (env[i] > thr) {
+        thump = i;
+        break;
+      }
     }
-    const trial = { ...p, env, msPerHop, sound, thump, thr, ms: thump >= 0 ? (sound - thump) * msPerHop : null };
+    const trial = {
+      ...p,
+      env,
+      msPerHop,
+      sound,
+      thump,
+      thr,
+      ms: thump >= 0 ? (sound - thump) * msPerHop : null,
+    };
     this.trials.push(trial);
     this.view = trial;
     drawWave();
@@ -556,7 +837,11 @@ function drawWave() {
   mark(t.sound, '#c2410c', 'sound');
   g.fillStyle = '#1d1d1f';
   g.font = '22px system-ui';
-  g.fillText(t.ms != null ? `${t.ms.toFixed(1)} ms` : 'no key thump found, click to place it', c.width - 360, c.height - 14);
+  g.fillText(
+    t.ms != null ? `${t.ms.toFixed(1)} ms` : 'no key thump found, click to place it',
+    c.width - 360,
+    c.height - 14,
+  );
 }
 
 $('wave').addEventListener('click', (e) => {
@@ -574,11 +859,15 @@ function band(ms) {
 function renderLatTable() {
   const body = $('latTable').tBodies[0];
   body.innerHTML = lat.trials
-    .map((t, i) => `<tr><td>${i + 1}</td><td>${t.tone}</td><td>${t.config}</td><td>${t.ms != null ? t.ms.toFixed(1) + ' ms' : '–'}</td><td>${t.wait.toFixed(1)} ms</td></tr>`)
+    .map(
+      (t, i) =>
+        `<tr><td>${i + 1}</td><td>${t.tone}</td><td>${t.config}</td><td>${t.ms != null ? t.ms.toFixed(1) + ' ms' : '–'}</td><td>${t.wait.toFixed(1)} ms</td></tr>`,
+    )
     .reverse()
     .join('');
   const groups = {};
-  for (const t of lat.trials) if (t.ms != null) (groups[`${t.tone} · ${t.config}`] ??= []).push(t.ms);
+  for (const t of lat.trials)
+    if (t.ms != null) (groups[`${t.tone} · ${t.config}`] ??= []).push(t.ms);
   $('latSummary').innerHTML = Object.entries(groups)
     .map(([k, v]) => {
       const mean = v.reduce((a, b) => a + b, 0) / v.length;
@@ -599,7 +888,9 @@ function renderTones() {
         `<div class="genre">${g}</div>` +
         TONES.filter((t) => t.genre === g)
           .map(
-            (t) => `<label class="tone ${t.id === state.selected ? 'sel' : ''}"><input type="radio" name="tone" value="${t.id}" ${t.id === state.selected ? 'checked' : ''}/>
+            (
+              t,
+            ) => `<label class="tone ${t.id === state.selected ? 'sel' : ''}"><input type="radio" name="tone" value="${t.id}" ${t.id === state.selected ? 'checked' : ''}/>
             <span>${t.name}<br><small>${t.set}</small></span>
             <span class="st">${t.synth ? 'synth' : state.cache.has(t.id) ? 'in memory' : state.progress[t.id] && state.loading === t.id ? state.progress[t.id] : 'not loaded'}</span></label>`,
           )
@@ -630,35 +921,71 @@ function renderMem() {
   const over = m.stereoSeconds > 240;
   kv($('mem'), [
     ['Distinct samples', m.files],
-    ['Audio held', `${m.stereoSeconds.toFixed(0)} s stereo-equivalent <span class="${over ? 'bad' : 'good'}">(${over ? 'over' : 'within'} the 240 s budget)</span>`],
+    [
+      'Audio held',
+      `${m.stereoSeconds.toFixed(0)} s stereo-equivalent <span class="${over ? 'bad' : 'good'}">(${over ? 'over' : 'within'} the 240 s budget)</span>`,
+    ],
     ['Decoded memory', `${m.decodedMB.toFixed(0)} MB at ${ctx.sampleRate / 1000} kHz`],
     ['Download as MP3 (est.)', `${m.mp3MiB.toFixed(1)} MiB`],
     ['Fetched here (FLAC/WAV, all layers)', `${m.rawMiB.toFixed(1)} MiB`],
-    ['Load: fetch + decode wall time', `${(m.wallMs / 1000).toFixed(2)} s (decode calls summed ${(m.decodeMs / 1000).toFixed(2)} s)`],
-    ['Main thread during load', `longest frame gap ${m.maxFrameGap.toFixed(0)} ms${m.longTasks != null ? `, ${m.longTasks} long tasks, longest ${m.longestTask.toFixed(0)} ms` : ''}`],
+    [
+      'Load: fetch + decode wall time',
+      `${(m.wallMs / 1000).toFixed(2)} s (decode calls summed ${(m.decodeMs / 1000).toFixed(2)} s)`,
+    ],
+    [
+      'Main thread during load',
+      `longest frame gap ${m.maxFrameGap.toFixed(0)} ms${m.longTasks != null ? `, ${m.longTasks} long tasks, longest ${m.longestTask.toFixed(0)} ms` : ''}`,
+    ],
     ['Preparation (trim, cap, loop)', `${m.prepMs.toFixed(0)} ms on the main thread`],
-    ['Leading silence in files', `avg ${m.leadAvg.toFixed(1)} ms, max ${m.leadMax.toFixed(1)} ms${$('trim').checked ? ' (trimmed)' : ' (NOT trimmed: adds to latency)'}`],
+    [
+      'Leading silence in files',
+      `avg ${m.leadAvg.toFixed(1)} ms, max ${m.leadMax.toFixed(1)} ms${$('trim').checked ? ' (trimmed)' : ' (NOT trimmed: adds to latency)'}`,
+    ],
   ]);
 }
 
 function renderLive() {
   const s = player.stats();
   const n = player.lastNote;
-  const name = (x) => ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'][x % 12] + (Math.floor(x / 12) - 1);
+  const name = (x) =>
+    ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'][x % 12] +
+    (Math.floor(x / 12) - 1);
   const stretch = n?.keycentre != null ? n.stretch : null;
-  const stretchCls = stretch == null ? '' : Math.abs(stretch) > 6 ? 'bad' : Math.abs(stretch) > 3 ? 'warn' : 'good';
+  const stretchCls =
+    stretch == null ? '' : Math.abs(stretch) > 6 ? 'bad' : Math.abs(stretch) > 3 ? 'warn' : 'good';
   kv($('live'), [
-    ['Tone', TONES.find((t) => t.id === state.selected).name + (state.loading ? ' <span class="warn">(loading, Warm Analog sounds meanwhile)</span>' : '')],
+    [
+      'Tone',
+      TONES.find((t) => t.id === state.selected).name +
+        (state.loading ? ' <span class="warn">(loading, Warm Analog sounds meanwhile)</span>' : ''),
+    ],
     ['Last note', n ? `${name(n.note)} (${n.note}), velocity ${n.velocity}` : '–'],
     ['Sample used', n?.file ? `${n.file}${n.layer ? `, layer ${n.layer}` : ''}` : '–'],
-    ['Stretch from keycentre', stretch == null ? '–' : `<span class="${stretchCls}">${stretch > 0 ? '+' : ''}${stretch} semitones</span> (keycentre ${name(n.keycentre)})`],
+    [
+      'Stretch from keycentre',
+      stretch == null
+        ? '–'
+        : `<span class="${stretchCls}">${stretch > 0 ? '+' : ''}${stretch} semitones</span> (keycentre ${name(n.keycentre)})`,
+    ],
     ['Pedal', s.pedalDown ? '<b>down</b>' : 'up'],
-    ['Pitch bend', `${s.bendCents > 0 ? '+' : ''}${s.bendCents.toFixed(0)} cents (range ±${player.bendRange})`],
-    ['Voices', `${s.total} of ${s.max}: ${s.key} key-held, ${s.pedal} pedal-held, ${s.release} in release`],
-    ['Steals', `${s.steals} (release ${s.stealsByState.release}, pedal ${s.stealsByState.pedal}, key ${s.stealsByState.key})`],
+    [
+      'Pitch bend',
+      `${s.bendCents > 0 ? '+' : ''}${s.bendCents.toFixed(0)} cents (range ±${player.bendRange})`,
+    ],
+    [
+      'Voices',
+      `${s.total} of ${s.max}: ${s.key} key-held, ${s.pedal} pedal-held, ${s.release} in release`,
+    ],
+    [
+      'Steals',
+      `${s.steals} (release ${s.stealsByState.release}, pedal ${s.stealsByState.pedal}, key ${s.stealsByState.key})`,
+    ],
     ['Retriggers of a held note', s.retriggers],
     ['Notes played', s.notes],
-    ['Level since selecting', `peak ${dbfs(state.level.peakHold)}, loudest 300 ms RMS ${dbfs(state.level.rmsHold)}`],
+    [
+      'Level since selecting',
+      `peak ${dbfs(state.level.peakHold)}, loudest 300 ms RMS ${dbfs(state.level.rmsHold)}`,
+    ],
   ]);
   $('voiceBar').style.width = `${Math.min(100, (s.total / s.max) * 100)}%`;
 }
@@ -669,24 +996,49 @@ function dbfs(x) {
 
 function renderInput() {
   kv($('input'), [
-    ['Devices', midi.error ? `<span class="warn">${midi.error}</span>` : midi.inputs.length ? midi.inputs.map((i) => `${i.name} <small>(${i.state})</small>`).join('<br>') : '<span class="warn">no MIDI Device found</span>'],
+    [
+      'Devices',
+      midi.error
+        ? `<span class="warn">${midi.error}</span>`
+        : midi.inputs.length
+          ? midi.inputs.map((i) => `${i.name} <small>(${i.state})</small>`).join('<br>')
+          : '<span class="warn">no MIDI Device found</span>',
+    ],
     ['Last MIDI message', midi.lastMsg || '–'],
     ['Computer-key octave', `C${state.octave / 12 - 1}`],
-    ['Audio', ctx.state === 'running' ? '<span class="good">running</span>' : '<span class="warn">suspended: click anywhere to start</span>'],
+    [
+      'Audio',
+      ctx.state === 'running'
+        ? '<span class="good">running</span>'
+        : '<span class="warn">suspended: click anywhere to start</span>',
+    ],
   ]);
 }
 
 function renderLat() {
   const o = ctx.getOutputTimestamp?.();
-  const ahead = o?.performanceTime ? (ctx.currentTime - (o.contextTime + (performance.now() - o.performanceTime) / 1000)) * 1000 : null;
+  const ahead = o?.performanceTime
+    ? (ctx.currentTime - (o.contextTime + (performance.now() - o.performanceTime) / 1000)) * 1000
+    : null;
   const stats = ctx.playbackStats;
   kv($('lat'), [
     ['Sample rate', `${ctx.sampleRate} Hz`],
-    ['baseLatency / outputLatency', `${((ctx.baseLatency ?? 0) * 1000).toFixed(1)} ms / ${((ctx.outputLatency ?? 0) * 1000).toFixed(1)} ms`],
+    [
+      'baseLatency / outputLatency',
+      `${((ctx.baseLatency ?? 0) * 1000).toFixed(1)} ms / ${((ctx.outputLatency ?? 0) * 1000).toFixed(1)} ms`,
+    ],
     ['Clock ahead of the speaker', ahead != null ? `${ahead.toFixed(1)} ms` : '–'],
-    ['MIDI handler wait', `last ${state.handler.last.toFixed(1)} ms, max ${state.handler.max.toFixed(1)} ms`],
+    [
+      'MIDI handler wait',
+      `last ${state.handler.last.toFixed(1)} ms, max ${state.handler.max.toFixed(1)} ms`,
+    ],
     ['Timestamp starts that arrived late', state.late],
-    ['Underruns reported by Chrome', stats ? `${stats.underrunEvents ?? '?'} events, ${((stats.underrunDuration ?? 0) * 1000).toFixed(0)} ms` : 'not exposed: listen for crackle'],
+    [
+      'Underruns reported by Chrome',
+      stats
+        ? `${stats.underrunEvents ?? '?'} events, ${((stats.underrunDuration ?? 0) * 1000).toFixed(0)} ms`
+        : 'not exposed: listen for crackle',
+    ],
   ]);
 }
 
@@ -717,7 +1069,8 @@ function frame(now) {
 
 // ---------- controls ----------
 
-for (const id of ['layers', 'tailCap', 'trim', 'bakeLoop', 'xfade', 'attack']) $(id).addEventListener('change', applyCurrentTone);
+for (const id of ['layers', 'tailCap', 'trim', 'bakeLoop', 'xfade', 'attack'])
+  $(id).addEventListener('change', applyCurrentTone);
 $('trimDb').addEventListener('input', (e) => {
   state.trims[state.selected] = Number(e.target.value);
   toneBus.gain.value = dbToGain(Number(e.target.value));
@@ -736,7 +1089,12 @@ $('bendRange').addEventListener('change', (e) => (player.bendRange = Number(e.ta
 $('cap').addEventListener('change', (e) => (player.maxVoices = Number(e.target.value)));
 $('panic').addEventListener('click', () => player.allOff());
 $('resetCounters').addEventListener('click', () => {
-  Object.assign(player.counters, { steals: 0, stealsByState: { release: 0, pedal: 0, key: 0 }, retriggers: 0, notes: 0 });
+  Object.assign(player.counters, {
+    steals: 0,
+    stealsByState: { release: 0, pedal: 0, key: 0 },
+    retriggers: 0,
+    notes: 0,
+  });
   state.level = { peakHold: 0, rmsHold: 0 };
   state.handler.max = 0;
   state.late = 0;
@@ -752,7 +1110,9 @@ $('hint').addEventListener('change', async (e) => {
     await lat.attach(lat.stream);
   }
 });
-$('arm').addEventListener('click', () => lat.arm().catch((err) => ($('armState').textContent = `Mic refused: ${err.message}`)));
+$('arm').addEventListener('click', () =>
+  lat.arm().catch((err) => ($('armState').textContent = `Mic refused: ${err.message}`)),
+);
 $('clearLat').addEventListener('click', () => {
   lat.trials = [];
   lat.view = null;
