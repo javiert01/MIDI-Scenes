@@ -107,39 +107,32 @@ _Avoid_: Device (a Virtual Input is never listed or selected), Virtual Device,
 Piano (the Piano Preview is a surface the Virtual Input is played *through*, not an
 instrument).
 
-**Preview Synth**:
-The engine-owned synthesizer that makes Virtual Input notes audible — a stand-in
-instrument, the audible counterpart to the Piano Preview's visual stand-in. It
-sounds notes from the Virtual Input *only* (its computer-keyboard surface and its
-Piano Preview click surface); a real Device stays silent, being its own instrument.
-Native Web Audio, polyphonic (one voice per held note), a warm-analog tone — a
-detuned sawtooth unison plus a sub-octave sine through a resonant low-pass filter —
-with a short release tail. Gated by its own **Sound** toggle (default on): audio sounds
-only when the Virtual Input is enabled *and* Sound is on. Not an Overlay — it is
-non-visual, so it draws nothing in the Keyboard band.
-_Avoid_: Overlay (a Preview Synth renders no pixels), Piano (a synth tone, not a
-real piano; it stands in like the Piano Preview does), Instrument (a real Device is
-the instrument; this only sounds the synthetic Virtual Input).
+**Preview Synth** _(being replaced by the Tone Player, ADR-0009)_:
+The engine-owned synthesizer that makes Virtual Input notes audible today, with a
+single warm-analog sound. The Tone Player replaces it, and its sound carries over as
+the Warm Analog Tone. This entry goes once the Tone Player lands.
+_Avoid_: Using it for the Tone Player, or for any Tone.
 
-**Tone** _(planned)_:
+**Tone**:
 One selectable sound that notes can be played with: a recognisable instrument such
-as Grand Piano or Accordion, or the synthetic Warm Analog (the Preview Synth's sound
-carried over). One Tone sounds at a time, and its character is fixed: the user picks
-a Tone, they don't tune it.
+as Grand Piano or Accordion, or a synthetic sound such as Warm Analog (the default,
+carried over from the Preview Synth) or Villera Lead. One Tone sounds at a time, and
+its character is fixed: the user picks a Tone, they don't tune it.
 _Avoid_: Instrument (a real Device is the instrument), patch, preset, voice (a voice
 is one sounding note, not a choice of sound).
 
-**Genre** _(planned)_:
+**Genre**:
 A label grouping Tones in the list (Classical, Rock, Cumbia). It only organises: it
 has no sound of its own and brings no accompaniment.
 _Avoid_: Style, pack, preset.
 
-**Tone Player** _(planned)_:
-The engine-owned player that sounds notes with the selected Tone, succeeding the
-Preview Synth. Virtual Input notes sound through it, and a Device's notes do only
-when the user opts in, since a Device is usually voiced elsewhere.
-_Avoid_: Preview Synth (the stand-in it succeeds), sampler (how it sounds a Tone, not
-what it is).
+**Tone Player**:
+The engine-owned player that sounds notes with the selected Tone. Virtual Input
+notes sound through it, and a Device's notes do only when the user opts in, since a
+Device is usually voiced elsewhere. A Device's sustain pedal and pitch bend shape
+everything it sounds, but never the visuals. Not an Overlay: it draws nothing.
+_Avoid_: Preview Synth (the stand-in it replaces), sampler (how it sounds a Tone, not
+what it is), Overlay.
 
 **Chroma Key area**:
 The green-filled bottom third of the canvas, kept for compositing piano-hands

@@ -1,5 +1,11 @@
 # Preview Synth: audio for the Virtual Input, hooked at the surfaces
 
+> Superseded in part by ADR-0009: the Tone Player replaces the Preview Synth and
+> plays a catalogue of sampled and synthesised Tones. Device notes sound when the
+> user opts in, and audio is hooked at each source's entry point. Native Web Audio
+> with no dependency, the injected context factory and the source-agnostic dispatch
+> core still stand. ADR-0009 lists exactly which parts below changed.
+
 To hear what you play while testing or composing without a real keyboard, we add a
 **Preview Synth** (see `CONTEXT.md`): an engine-owned, native Web Audio synthesizer
 that makes Virtual Input notes audible. It is the audible counterpart to the Piano
