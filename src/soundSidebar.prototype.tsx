@@ -318,10 +318,7 @@ function VariantB_SoundStrip({ engine }: { engine: VisualizerEngine }) {
   ];
 
   return (
-    <section
-      className={`proto-strip${s.awaitingGesture ? ' proto-strip--waiting' : ''}`}
-      aria-label="Sound"
-    >
+    <section className="proto-strip" aria-label="Sound">
       <div className="proto-strip-row">
         <span className="proto-strip-icon" aria-hidden="true">
           {mode === 'off' ? '🔇' : '🔊'}
@@ -339,17 +336,9 @@ function VariantB_SoundStrip({ engine }: { engine: VisualizerEngine }) {
           ))}
         </div>
       </div>
-      {s.awaitingGesture && <GestureHint compact />}
       {mode !== 'off' && (
         <label className="field proto-strip-tone">
-          <span className="field-label">
-            Tone
-            {toneById(s.toneId).credit && (
-              <span className="field-value" title={toneById(s.toneId).credit}>
-                ⓘ credit
-              </span>
-            )}
-          </span>
+          <span className="field-label">Tone</span>
           <select value={s.toneId} onChange={(e) => selectTone(e.target.value)}>
             <option value={DEFAULT_TONE.id}>{DEFAULT_TONE.label}</option>
             {GENRES.map((genre) => (
@@ -367,8 +356,15 @@ function VariantB_SoundStrip({ engine }: { engine: VisualizerEngine }) {
       )}
       <LoadingLine s={s} />
       <LatencyHint s={s} />
+      {mode !== 'off' && <Credit s={s} />}
     </section>
   );
+}
+
+/** Agreed in review: the reload hint lives in the always-visible Device card. */
+function VariantB_DeviceCardHint() {
+  const s = useProto();
+  return s.awaitingGesture ? <GestureHint compact /> : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -517,6 +513,7 @@ export function SoundSlotUnderDeviceCard({
 
 export function SoundSlotInDeviceCard({ variant }: { variant: SoundVariant }) {
   if (variant === 'C') return <VariantC_DeviceCardBadge />;
+  if (variant === 'B') return <VariantB_DeviceCardHint />;
   return null;
 }
 
