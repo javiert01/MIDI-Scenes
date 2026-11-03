@@ -25,6 +25,16 @@ import {
   toggleExpansion,
   type ExpansionState,
 } from '@/sidebarExpansion';
+import {
+  SoundPrototypeChrome,
+  SoundSlotInBody,
+  SoundSlotInDeviceCard,
+  SoundSlotUnderDeviceCard,
+  useSoundVariant,
+  VariantC_DeviceSoundSwitch,
+  VariantC_VirtualSoundSwitch,
+  type SoundVariant,
+} from '@/soundSidebar.prototype';
 import './App.css';
 
 function useEngineValue<T>(engine: VisualizerEngine, select: (engine: VisualizerEngine) => T): T {
@@ -100,6 +110,7 @@ function Sidebar({
   // Lives above the open/collapsed split, so a hot-plug is still announced while
   // the panel is collapsed. Present Mode unmounts this: a recording stays clean.
   const deviceNotice = useDeviceNotice(engine);
+  const soundVariant = useSoundVariant();
 
   if (!open) {
     return (
@@ -138,17 +149,21 @@ function Sidebar({
           <span aria-hidden="true">☰</span>
         </button>
       </header>
-      <DeviceCard engine={engine} notice={deviceNotice} />
+      <DeviceCard engine={engine} notice={deviceNotice} soundVariant={soundVariant} />
+      {soundVariant && <SoundSlotUnderDeviceCard variant={soundVariant} engine={engine} />}
       <ExpansionProvider>
         <div className="sidebar-body">
+          {soundVariant === 'A' && <SoundSlotInBody variant="A" engine={engine} />}
           <SceneSection engine={engine} />
           <CrystalsSection engine={engine} />
           <KeyboardBandSection engine={engine} />
-          <InputSection engine={engine} />
+          {soundVariant === 'C' && <SoundSlotInBody variant="C" engine={engine} />}
+          <InputSection engine={engine} soundVariant={soundVariant} />
           <ResolutionSection engine={engine} />
         </div>
       </ExpansionProvider>
       <SettingsFooter engine={engine} />
+      <SoundPrototypeChrome variant={soundVariant} engine={engine} />
     </aside>
   );
 }
@@ -193,7 +208,15 @@ function useDeviceNotice(engine: VisualizerEngine): string | null {
 const ACTIVITY_PULSE_MS = 200;
 
 /** Always on screen, so whether a keyboard is connected never depends on what is expanded. */
-function DeviceCard({ engine, notice }: { engine: VisualizerEngine; notice: string | null }) {
+function DeviceCard({
+  engine,
+  notice,
+  soundVariant,
+}: {
+  engine: VisualizerEngine;
+  notice: string | null;
+  soundVariant: SoundVariant | null;
+}) {
   const midiStatus = useEngineValue(engine, (e) => e.midiStatus);
   const devices = useEngineValue(engine, (e) => e.devices);
   const activeDeviceId = useEngineValue(engine, (e) => e.activeDeviceId);
@@ -241,6 +264,7 @@ function DeviceCard({ engine, notice }: { engine: VisualizerEngine; notice: stri
           Play with my computer keyboard
         </button>
       )}
+      {soundVariant && <SoundSlotInDeviceCard variant={soundVariant} />}
       {notice && (
         <p className="device-card-notice" role="status">
           {notice}
@@ -292,7 +316,7 @@ function ExpansionProvider({ children }: { children: ReactNode }) {
 
 // One level only: a section's current value shows in its header, so what it
 // controls stays readable even while collapsed.
-function Section({
+export function Section({
   id,
   title,
   summary,
@@ -496,7 +520,7 @@ function formatRangeValue(value: number, step = 1): string {
   return value.toFixed(decimals);
 }
 
-function SliderField({
+export function SliderField({
   label,
   display,
   min,
@@ -553,7 +577,7 @@ function ColorField({
   );
 }
 
-function SwitchField({
+export function SwitchField({
   label,
   hint,
   checked,
@@ -723,7 +747,13 @@ function KeyboardBandSection({ engine }: { engine: VisualizerEngine }) {
   );
 }
 
-function InputSection({ engine }: { engine: VisualizerEngine }) {
+function InputSection({
+  engine,
+  soundVariant,
+}: {
+  engine: VisualizerEngine;
+  soundVariant: SoundVariant | null;
+}) {
   const midiStatus = useEngineValue(engine, (e) => e.midiStatus);
   const devices = useEngineValue(engine, (e) => e.devices);
   const activeDeviceId = useEngineValue(engine, (e) => e.activeDeviceId);
@@ -761,6 +791,7 @@ function InputSection({ engine }: { engine: VisualizerEngine }) {
           {midiStatus === 'unavailable' ? "Can't list keyboards without MIDI." : 'None connected.'}
         </p>
       )}
+      {soundVariant === 'C' && <VariantC_DeviceSoundSwitch />}
       <h3 className="subsection-title">Virtual Input</h3>
       <div className="controls">
         <SwitchField
@@ -770,12 +801,18 @@ function InputSection({ engine }: { engine: VisualizerEngine }) {
         />
         {virtualInputEnabled && (
           <>
-            <SwitchField
-              label="Sound"
-              hint="Hear these notes through a built-in synth."
-              checked={soundEnabled}
-              onChange={(checked) => engine.setSoundEnabled(checked)}
-            />
+            {soundVariant === 'C' ? (
+              <VariantC_VirtualSoundSwitch engine={engine} />
+            ) : (
+              !soundVariant && (
+                <SwitchField
+                  label="Sound"
+                  hint="Hear these notes through a built-in synth."
+                  checked={soundEnabled}
+                  onChange={(checked) => engine.setSoundEnabled(checked)}
+                />
+              )
+            )}
             <dl className="key-legend">
               <div>
                 <dt>White keys</dt>
