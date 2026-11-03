@@ -230,7 +230,7 @@ function buildAudio(hint) {
   });
   routeTone();
   applyCurrentTone();
-  window.__proto = { ctx, player, state }; // for poking at it from the console
+  window.__proto = { ctx, player, state, lat }; // for poking at it from the console
 }
 
 function routeTone() {
@@ -789,14 +789,17 @@ const lat = {
         break;
       }
     }
+    // Only hand-confirmed strikes count: the mic often hears the key too faintly to trust a guess.
     const trial = {
       ...p,
       env,
       msPerHop,
       sound,
       thump,
-      thr,
-      ms: thump >= 0 ? (sound - thump) * msPerHop : null,
+      auto: thump >= 0 ? (sound - thump) * msPerHop : null,
+      ms: null,
+      v0: Math.max(0, sound - Math.floor(160 / msPerHop)),
+      v1: Math.min(env.length, sound + Math.floor(40 / msPerHop)),
     };
     this.trials.push(trial);
     this.view = trial;
@@ -808,7 +811,7 @@ const lat = {
   adjust(fraction, isSound) {
     const t = this.view;
     if (!t) return;
-    const i = Math.round(fraction * t.env.length);
+    const i = Math.round(t.v0 + fraction * (t.v1 - t.v0));
     if (isSound) t.sound = i;
     else t.thump = i;
     t.ms = t.thump >= 0 ? (t.sound - t.thump) * t.msPerHop : null;
@@ -823,30 +826,32 @@ function drawWave() {
   const t = lat.view;
   g.clearRect(0, 0, c.width, c.height);
   if (!t) return;
+  // Zoomed to the 160 ms before the sound, in decibels, so a faint key thump shows as a bump.
+  const span = t.v1 - t.v0;
+  const xOf = (i) => ((i - t.v0) / span) * c.width;
   const max = t.env.reduce((a, b) => Math.max(a, b), 1e-6);
+  g.fillStyle = '#e5e7eb';
+  for (let ms = 0; ms <= span * t.msPerHop; ms += 10) g.fillRect(xOf(t.v0 + ms / t.msPerHop), 0, 1, c.height);
   g.fillStyle = '#9aa0a6';
-  for (let i = 0; i < t.env.length; i++) {
-    const h = Math.sqrt(t.env[i] / max) * (c.height - 20);
-    const x = (i / t.env.length) * c.width;
-    g.fillRect(x, c.height - h, Math.max(1, c.width / t.env.length), h);
+  for (let i = t.v0; i < t.v1; i++) {
+    const db = 20 * Math.log10(Math.max(t.env[i], 1e-7) / max);
+    const h = Math.min(1, Math.max(0, (db + 60) / 60)) * (c.height - 30);
+    g.fillRect(xOf(i), c.height - h, Math.max(1, c.width / span), h);
   }
-  const mark = (i, color, label) => {
+  const mark = (i, color, label, dashed) => {
     if (i < 0) return;
-    const x = (i / t.env.length) * c.width;
+    const x = xOf(i);
     g.fillStyle = color;
-    g.fillRect(x - 1, 0, 2, c.height);
+    if (dashed) for (let y = 0; y < c.height; y += 12) g.fillRect(x - 1, y, 2, 6);
+    else g.fillRect(x - 1, 0, 2, c.height);
     g.font = '22px system-ui';
     g.fillText(label, x + 6, 24);
   };
-  mark(t.thump, '#2563eb', 'key');
+  mark(t.thump, '#2563eb', t.ms != null ? 'key' : 'key? (guess)', t.ms == null);
   mark(t.sound, '#c2410c', 'sound');
   g.fillStyle = '#1d1d1f';
   g.font = '22px system-ui';
-  g.fillText(
-    t.ms != null ? `${t.ms.toFixed(1)} ms` : 'no key thump found, click to place it',
-    c.width - 360,
-    c.height - 14,
-  );
+  g.fillText(t.ms != null ? `${t.ms.toFixed(1)} ms (confirmed)` : 'click the key thump to confirm', c.width - 420, c.height - 10);
 }
 
 $('wave').addEventListener('click', (e) => {
@@ -866,7 +871,7 @@ function renderLatTable() {
   body.innerHTML = lat.trials
     .map(
       (t, i) =>
-        `<tr><td>${i + 1}</td><td>${t.tone}</td><td>${t.config}</td><td>${t.ms != null ? t.ms.toFixed(1) + ' ms' : '–'}</td><td>${t.wait.toFixed(1)} ms</td></tr>`,
+        `<tr><td>${i + 1}</td><td>${t.tone}</td><td>${t.config}</td><td>${t.ms != null ? t.ms.toFixed(1) + ' ms' : t.auto != null ? `<span class="hint">guess ${t.auto.toFixed(1)}, unconfirmed</span>` : '–'}</td><td>${t.wait.toFixed(1)} ms</td></tr>`,
     )
     .reverse()
     .join('');
