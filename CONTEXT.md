@@ -121,6 +121,26 @@ _Avoid_: Overlay (a Preview Synth renders no pixels), Piano (a synth tone, not a
 real piano; it stands in like the Piano Preview does), Instrument (a real Device is
 the instrument; this only sounds the synthetic Virtual Input).
 
+**Tone** _(planned)_:
+One selectable sound that notes can be played with: a recognisable instrument such
+as Grand Piano or Accordion, or the synthetic Warm Analog (the Preview Synth's sound
+carried over). One Tone sounds at a time, and its character is fixed: the user picks
+a Tone, they don't tune it.
+_Avoid_: Instrument (a real Device is the instrument), patch, preset, voice (a voice
+is one sounding note, not a choice of sound).
+
+**Genre** _(planned)_:
+A label grouping Tones in the list (Classical, Rock, Cumbia). It only organises: it
+has no sound of its own and brings no accompaniment.
+_Avoid_: Style, pack, preset.
+
+**Tone Player** _(planned)_:
+The engine-owned player that sounds notes with the selected Tone, succeeding the
+Preview Synth. Virtual Input notes sound through it, and a Device's notes do only
+when the user opts in, since a Device is usually voiced elsewhere.
+_Avoid_: Preview Synth (the stand-in it succeeds), sampler (how it sounds a Tone, not
+what it is).
+
 **Chroma Key area**:
 The green-filled bottom third of the canvas, kept for compositing piano-hands
 footage under the visualization in a video editor. An Overlay filling the Keyboard
