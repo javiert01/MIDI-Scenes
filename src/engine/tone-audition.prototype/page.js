@@ -321,9 +321,11 @@ function prepareBuffer(r, { cap, trim, bake }) {
     loop = [toS(r.loop[0]), toS(r.loop[1])];
     end = Math.min(src.length, start + Math.ceil((loop[1] + 0.05) * rate));
   } else if (bake && src.duration > 4) {
-    const a = Math.floor(1.5 * rate);
+    // Long crossfades smear the vibrato phase mismatch at the seam; start the loop just after the fade.
+    const want = Number($('xfade').value);
     const b = Math.floor((src.duration - 0.6) * rate);
-    const xf = Math.min(Math.floor(0.5 * rate), Math.floor((b - a) / 3));
+    const xf = Math.min(Math.floor(want * rate), Math.floor(b / 3));
+    const a = xf + Math.floor(0.5 * rate);
     bakeAt = { a, b, xf };
     end = b;
     loop = [(a - start) / rate, (b - start) / rate];
@@ -715,7 +717,7 @@ function frame(now) {
 
 // ---------- controls ----------
 
-for (const id of ['layers', 'tailCap', 'trim', 'bakeLoop', 'attack']) $(id).addEventListener('change', applyCurrentTone);
+for (const id of ['layers', 'tailCap', 'trim', 'bakeLoop', 'xfade', 'attack']) $(id).addEventListener('change', applyCurrentTone);
 $('trimDb').addEventListener('input', (e) => {
   state.trims[state.selected] = Number(e.target.value);
   toneBus.gain.value = dbToGain(Number(e.target.value));
