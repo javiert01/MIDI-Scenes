@@ -20,7 +20,12 @@ export class TonePlayer {
     this.voices = []; // { note, state: 'key' | 'pedal' | 'release', started, endsAt, env, sound }
     this.pedalDown = false;
     this.bendCents = 0;
-    this.counters = { steals: 0, stealsByState: { release: 0, pedal: 0, key: 0 }, retriggers: 0, notes: 0 };
+    this.counters = {
+      steals: 0,
+      stealsByState: { release: 0, pedal: 0, key: 0 },
+      retriggers: 0,
+      notes: 0,
+    };
     this.lastNote = null;
   }
 
@@ -97,7 +102,14 @@ export class TonePlayer {
     this.prune(this.ctx.currentTime);
     const by = { key: 0, pedal: 0, release: 0 };
     for (const v of this.voices) by[v.state]++;
-    return { ...by, total: this.voices.length, max: this.maxVoices, pedalDown: this.pedalDown, bendCents: this.bendCents, ...this.counters };
+    return {
+      ...by,
+      total: this.voices.length,
+      max: this.maxVoices,
+      pedalDown: this.pedalDown,
+      bendCents: this.bendCents,
+      ...this.counters,
+    };
   }
 
   // --- internals ---
@@ -153,16 +165,27 @@ function holdAt(param, when) {
  * regions: [{ buffer, key, lo, hi, vlo, vhi, tune, gainDb, pan, loop: [startS, endS] | null,
  * release }]. Notes outside every region stretch the nearest keycentre.
  */
-export function sampledTone({ id, regions, releaseTime = 0.3, velTrack = 0.6, attack = 0.002, gainDb = 0 }) {
+export function sampledTone({
+  id,
+  regions,
+  releaseTime = 0.3,
+  velTrack = 0.6,
+  attack = 0.002,
+  gainDb = 0,
+}) {
   const playable = regions.filter((r) => !r.release);
   const releases = regions.filter((r) => r.release);
 
   function pick(pool, note, velocity) {
-    let hits = pool.filter((r) => note >= r.lo && note <= r.hi && velocity >= r.vlo && velocity <= r.vhi);
+    let hits = pool.filter(
+      (r) => note >= r.lo && note <= r.hi && velocity >= r.vlo && velocity <= r.vhi,
+    );
     if (!hits.length) {
       const inVel = pool.filter((r) => velocity >= r.vlo && velocity <= r.vhi);
       const from = inVel.length ? inVel : pool;
-      const nearest = from.reduce((a, b) => (Math.abs(b.key - note) < Math.abs(a.key - note) ? b : a));
+      const nearest = from.reduce((a, b) =>
+        Math.abs(b.key - note) < Math.abs(a.key - note) ? b : a,
+      );
       hits = from.filter((r) => r.key === nearest.key);
     }
     return hits;
@@ -271,9 +294,82 @@ export function warmAnalog() {
  * vibrato built in. Variants differ in waveform and formant.
  */
 export const VILLERA_VARIANTS = {
-  A: { label: 'A: square + saw, nasal peak 1.4 kHz', waves: [['square', 0, 0.5], ['sawtooth', 6, 0.35]], peak: 1400, q: 2.2, peakDb: 7, lp: 6500, vibCents: 18, vibRate: 5.6, vibDelay: 0.22, glide: 0 },
-  B: { label: 'B: narrow pulse, brighter, faster vibrato', waves: 'pulse', peak: 2000, q: 1.6, peakDb: 6, lp: 9000, vibCents: 22, vibRate: 6.2, vibDelay: 0.15, glide: 0 },
-  C: { label: 'C: A with a short glide into each note', waves: [['square', 0, 0.5], ['sawtooth', 6, 0.35]], peak: 1400, q: 2.2, peakDb: 7, lp: 6500, vibCents: 18, vibRate: 5.6, vibDelay: 0.22, glide: 0.04 },
+  A: {
+    label: 'A: square + saw, nasal peak 1.4 kHz',
+    waves: [
+      ['square', 0, 0.5],
+      ['sawtooth', 6, 0.35],
+    ],
+    peak: 1400,
+    q: 2.2,
+    peakDb: 7,
+    lp: 6500,
+    vibCents: 18,
+    vibRate: 5.6,
+    vibDelay: 0.22,
+    glide: 0,
+  },
+  B: {
+    label: 'B: narrow pulse, brighter, faster vibrato',
+    waves: 'pulse',
+    peak: 2000,
+    q: 1.6,
+    peakDb: 6,
+    lp: 9000,
+    vibCents: 22,
+    vibRate: 6.2,
+    vibDelay: 0.15,
+    glide: 0,
+  },
+  C: {
+    label: 'C: A with a short glide into each note',
+    waves: [
+      ['square', 0, 0.5],
+      ['sawtooth', 6, 0.35],
+    ],
+    peak: 1400,
+    q: 2.2,
+    peakDb: 7,
+    lp: 6500,
+    vibCents: 18,
+    vibRate: 5.6,
+    vibDelay: 0.22,
+    glide: 0.04,
+  },
+  D: {
+    label: 'D: C, more nasal and brighter (peak 1.7 kHz, +11 dB)',
+    waves: [
+      ['square', 0, 0.5],
+      ['sawtooth', 6, 0.35],
+    ],
+    hp: 320,
+    peak: 1700,
+    q: 3.2,
+    peakDb: 11,
+    lp: 11000,
+    vibCents: 18,
+    vibRate: 5.6,
+    vibDelay: 0.22,
+    glide: 0.04,
+  },
+  E: {
+    label: 'E: D with a second, higher formant (2.9 kHz), brightest',
+    waves: [
+      ['square', 0, 0.45],
+      ['sawtooth', 6, 0.4],
+    ],
+    hp: 320,
+    peak: 1700,
+    q: 3.2,
+    peakDb: 10,
+    peak2: 2900,
+    peak2Db: 7,
+    lp: 12000,
+    vibCents: 18,
+    vibRate: 5.6,
+    vibDelay: 0.22,
+    glide: 0.04,
+  },
 };
 
 export function villeraLead(variant = 'A') {
@@ -285,12 +381,17 @@ export function villeraLead(variant = 'A') {
     amp.gain.setValueAtTime(0, when);
     amp.gain.linearRampToValueAtTime(level, when + 0.006);
     amp.gain.linearRampToValueAtTime(level * 0.85, when + 0.12);
-    const hp = biquad(ctx, 'highpass', 220, 0.7);
+    const hp = biquad(ctx, 'highpass', v.hp ?? 220, 0.7);
     const peak = biquad(ctx, 'peaking', v.peak, v.q);
     peak.gain.value = v.peakDb;
     const lp = biquad(ctx, 'lowpass', v.lp, 0.8);
     hp.connect(peak);
-    peak.connect(lp);
+    if (v.peak2) {
+      const peak2 = biquad(ctx, 'peaking', v.peak2, 2.5);
+      peak2.gain.value = v.peak2Db;
+      peak.connect(peak2);
+      peak2.connect(lp);
+    } else peak.connect(lp);
     lp.connect(amp);
     amp.connect(out);
 
@@ -341,11 +442,16 @@ export function villeraLead(variant = 'A') {
 
 /** A sharp click for the acoustic latency test: a 1 ms full-scale burst. */
 export function testClick() {
-  return synthTone('click', 0.01, (ctx, note, velocity, when, bend, out) => {
-    const o = osc(ctx, 'square', 2000, 0, out, when);
-    o.stop(when + 0.002);
-    return [o];
-  }, 0.0002);
+  return synthTone(
+    'click',
+    0.01,
+    (ctx, note, velocity, when, bend, out) => {
+      const o = osc(ctx, 'square', 2000, 0, out, when);
+      o.stop(when + 0.002);
+      return [o];
+    },
+    0.0002,
+  );
 }
 
 function synthTone(id, releaseTime, build, attack = 0.001) {
