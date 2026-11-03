@@ -1,4 +1,5 @@
-// PROTOTYPE (#45, extended for #50), throwaway page shell around player.js: loading,
+// PROTOTYPE (#45, extended for #50). Kept by the owner as the Tone tuning bench, not
+// production code. A page shell around player.js: loading,
 // sample preparation to #49's settings, MIDI, readouts, the loudness balance, and the
 // acoustic latency test.
 import {
@@ -121,6 +122,18 @@ const ORGAN_DEFAULT = {
 };
 const GUITAR_DEFAULT = { tilt: 0, pivot: 1200 };
 
+// The fixed gains #50 decided, against Warm Analog at 0 dB, measured at velocity 80.
+const DECIDED_GAINS = {
+  warm: 0,
+  piano: -7,
+  strings: -10.5,
+  guitar: -19,
+  organ: -19,
+  'organ-synth': -6.5,
+  accordion: -17,
+  villera: -3,
+};
+
 const saved = loadSaved();
 const state = {
   selected: 'warm',
@@ -129,7 +142,7 @@ const state = {
   prepared: null, // { toneId, regions, mem }
   toneObj: null, // the Tone the player holds for the selection, so the A/B can hand it back
   ab: false, // true while Warm Analog stands in for the A/B
-  trims: saved.trims ?? {}, // tone id -> dB
+  trims: { ...DECIDED_GAINS, ...saved.trims }, // tone id -> dB
   reverb: { mode: 'off', shared: 0.15, perTone: {}, ir: 2.2, ...saved.reverb },
   villera: { ...VILLERA_D, ...saved.villera },
   organ: { ...ORGAN_DEFAULT, ...saved.organ },
