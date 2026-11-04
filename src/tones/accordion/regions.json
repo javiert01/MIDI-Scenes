@@ -1,0 +1,510 @@
+{
+  "toneId": "accordion",
+  "sources": [
+    {
+      "name": "FreePats Button Accordion HN",
+      "url": "https://github.com/freepats/button-accordion-HN",
+      "pin": {
+        "commit": "d70d16456fd99305d1c24c612b205ab38846eb0f"
+      },
+      "licence": "CC0-1.0",
+      "author": "Jeff Stauffer (recording), michael02022 (sound bank), FreePats",
+      "changes": "Leading silence trimmed (−48 dBFS, 1 ms kept). Release samples start at their SFZ offset with a 30 ms linear fade-in. Random and velocity-driven start offsets on the sustain samples are dropped. Re-encoded as 128 kbps MP3, loop points moved to match."
+    }
+  ],
+  "regions": [
+    {
+      "file": "B3.mp3",
+      "keycentre": 47,
+      "keyLo": 0,
+      "keyHi": 49,
+      "velLo": 1,
+      "velHi": 127,
+      "tune": -34,
+      "gainDb": 0,
+      "pan": 0,
+      "loop": {
+        "start": 0.816734693877551,
+        "end": 1.4207482993197278
+      },
+      "release": false
+    },
+    {
+      "file": "D4.mp3",
+      "keycentre": 50,
+      "keyLo": 50,
+      "keyHi": 53,
+      "velLo": 1,
+      "velHi": 127,
+      "tune": -38,
+      "gainDb": 0,
+      "pan": 0,
+      "loop": {
+        "start": 1.128140589569161,
+        "end": 1.5681179138321995
+      },
+      "release": false
+    },
+    {
+      "file": "Fs4.mp3",
+      "keycentre": 54,
+      "keyLo": 54,
+      "keyHi": 54,
+      "velLo": 1,
+      "velHi": 127,
+      "tune": -23,
+      "gainDb": 0,
+      "pan": 0,
+      "loop": {
+        "start": 1.0524489795918368,
+        "end": 1.7997278911564625
+      },
+      "release": false
+    },
+    {
+      "file": "G4.mp3",
+      "keycentre": 55,
+      "keyLo": 55,
+      "keyHi": 56,
+      "velLo": 1,
+      "velHi": 127,
+      "tune": -30,
+      "gainDb": 0,
+      "pan": 0,
+      "loop": {
+        "start": 1.507845804988662,
+        "end": 2.11437641723356
+      },
+      "release": false
+    },
+    {
+      "file": "A4.mp3",
+      "keycentre": 57,
+      "keyLo": 57,
+      "keyHi": 58,
+      "velLo": 1,
+      "velHi": 127,
+      "tune": -32,
+      "gainDb": 0,
+      "pan": 0,
+      "loop": {
+        "start": 1.368843537414966,
+        "end": 1.6903401360544217
+      },
+      "release": false
+    },
+    {
+      "file": "B4.mp3",
+      "keycentre": 59,
+      "keyLo": 59,
+      "keyHi": 59,
+      "velLo": 1,
+      "velHi": 127,
+      "tune": -19,
+      "gainDb": 0,
+      "pan": 0,
+      "loop": {
+        "start": 1.7264399092970522,
+        "end": 2.065374149659864
+      },
+      "release": false
+    },
+    {
+      "file": "C5.mp3",
+      "keycentre": 60,
+      "keyLo": 60,
+      "keyHi": 61,
+      "velLo": 1,
+      "velHi": 127,
+      "tune": -28,
+      "gainDb": 0,
+      "pan": 0,
+      "loop": {
+        "start": 1.6536507936507936,
+        "end": 1.954671201814059
+      },
+      "release": false
+    },
+    {
+      "file": "D5.mp3",
+      "keycentre": 62,
+      "keyLo": 62,
+      "keyHi": 63,
+      "velLo": 1,
+      "velHi": 127,
+      "tune": -26,
+      "gainDb": 0,
+      "pan": 0,
+      "loop": {
+        "start": 1.6555102040816327,
+        "end": 1.9561224489795919
+      },
+      "release": false
+    },
+    {
+      "file": "E5.mp3",
+      "keycentre": 64,
+      "keyLo": 64,
+      "keyHi": 65,
+      "velLo": 1,
+      "velHi": 127,
+      "tune": -30,
+      "gainDb": 0,
+      "pan": 0,
+      "loop": {
+        "start": 1.487437641723356,
+        "end": 1.8928117913832199
+      },
+      "release": false
+    },
+    {
+      "file": "Fs5.mp3",
+      "keycentre": 66,
+      "keyLo": 66,
+      "keyHi": 66,
+      "velLo": 1,
+      "velHi": 127,
+      "tune": -26,
+      "gainDb": 0,
+      "pan": 0,
+      "loop": {
+        "start": 1.9266893424036282,
+        "end": 2.145079365079365
+      },
+      "release": false
+    },
+    {
+      "file": "G5.mp3",
+      "keycentre": 67,
+      "keyLo": 67,
+      "keyHi": 68,
+      "velLo": 1,
+      "velHi": 127,
+      "tune": -29,
+      "gainDb": 0,
+      "pan": 0,
+      "loop": {
+        "start": 1.7853287981859411,
+        "end": 2.2044897959183674
+      },
+      "release": false
+    },
+    {
+      "file": "A5.mp3",
+      "keycentre": 69,
+      "keyLo": 69,
+      "keyHi": 70,
+      "velLo": 1,
+      "velHi": 127,
+      "tune": -20,
+      "gainDb": 0,
+      "pan": 0,
+      "loop": {
+        "start": 1.9263718820861677,
+        "end": 2.1121315192743766
+      },
+      "release": false
+    },
+    {
+      "file": "B5.mp3",
+      "keycentre": 71,
+      "keyLo": 71,
+      "keyHi": 71,
+      "velLo": 1,
+      "velHi": 127,
+      "tune": -7,
+      "gainDb": 0,
+      "pan": 0,
+      "loop": {
+        "start": 1.708231292517007,
+        "end": 1.8656235827664398
+      },
+      "release": false
+    },
+    {
+      "file": "C6.mp3",
+      "keycentre": 72,
+      "keyLo": 72,
+      "keyHi": 73,
+      "velLo": 1,
+      "velHi": 127,
+      "tune": -26,
+      "gainDb": 0,
+      "pan": 0,
+      "loop": {
+        "start": 2.3111337868480724,
+        "end": 2.4688662131519274
+      },
+      "release": false
+    },
+    {
+      "file": "D6.mp3",
+      "keycentre": 74,
+      "keyLo": 74,
+      "keyHi": 75,
+      "velLo": 1,
+      "velHi": 127,
+      "tune": -16,
+      "gainDb": 0,
+      "pan": 0,
+      "loop": {
+        "start": 1.1471201814058958,
+        "end": 1.3487301587301588
+      },
+      "release": false
+    },
+    {
+      "file": "E6.mp3",
+      "keycentre": 76,
+      "keyLo": 76,
+      "keyHi": 78,
+      "velLo": 1,
+      "velHi": 127,
+      "tune": -22,
+      "gainDb": 0,
+      "pan": 0,
+      "loop": {
+        "start": 1.9646485260770976,
+        "end": 2.1109750566893424
+      },
+      "release": false
+    },
+    {
+      "file": "G6.mp3",
+      "keycentre": 79,
+      "keyLo": 79,
+      "keyHi": 127,
+      "velLo": 1,
+      "velHi": 127,
+      "tune": -10,
+      "gainDb": 0,
+      "pan": 0,
+      "loop": {
+        "start": 1.3301133786848072,
+        "end": 1.4411791383219954
+      },
+      "release": false
+    },
+    {
+      "file": "B3-release.mp3",
+      "keycentre": 47,
+      "keyLo": 0,
+      "keyHi": 49,
+      "velLo": 1,
+      "velHi": 127,
+      "tune": -34,
+      "gainDb": -8,
+      "pan": 0,
+      "loop": null,
+      "release": true
+    },
+    {
+      "file": "D4-release.mp3",
+      "keycentre": 50,
+      "keyLo": 50,
+      "keyHi": 53,
+      "velLo": 1,
+      "velHi": 127,
+      "tune": -38,
+      "gainDb": -8,
+      "pan": 0,
+      "loop": null,
+      "release": true
+    },
+    {
+      "file": "Fs4-release.mp3",
+      "keycentre": 54,
+      "keyLo": 54,
+      "keyHi": 54,
+      "velLo": 1,
+      "velHi": 127,
+      "tune": -23,
+      "gainDb": -8,
+      "pan": 0,
+      "loop": null,
+      "release": true
+    },
+    {
+      "file": "G4-release.mp3",
+      "keycentre": 55,
+      "keyLo": 55,
+      "keyHi": 56,
+      "velLo": 1,
+      "velHi": 127,
+      "tune": -30,
+      "gainDb": -8,
+      "pan": 0,
+      "loop": null,
+      "release": true
+    },
+    {
+      "file": "A4-release.mp3",
+      "keycentre": 57,
+      "keyLo": 57,
+      "keyHi": 58,
+      "velLo": 1,
+      "velHi": 127,
+      "tune": -32,
+      "gainDb": -8,
+      "pan": 0,
+      "loop": null,
+      "release": true
+    },
+    {
+      "file": "B4-release.mp3",
+      "keycentre": 59,
+      "keyLo": 59,
+      "keyHi": 59,
+      "velLo": 1,
+      "velHi": 127,
+      "tune": -19,
+      "gainDb": -8,
+      "pan": 0,
+      "loop": null,
+      "release": true
+    },
+    {
+      "file": "C5-release.mp3",
+      "keycentre": 60,
+      "keyLo": 60,
+      "keyHi": 61,
+      "velLo": 1,
+      "velHi": 127,
+      "tune": -28,
+      "gainDb": -8,
+      "pan": 0,
+      "loop": null,
+      "release": true
+    },
+    {
+      "file": "D5-release.mp3",
+      "keycentre": 62,
+      "keyLo": 62,
+      "keyHi": 63,
+      "velLo": 1,
+      "velHi": 127,
+      "tune": -26,
+      "gainDb": -8,
+      "pan": 0,
+      "loop": null,
+      "release": true
+    },
+    {
+      "file": "E5-release.mp3",
+      "keycentre": 64,
+      "keyLo": 64,
+      "keyHi": 65,
+      "velLo": 1,
+      "velHi": 127,
+      "tune": -30,
+      "gainDb": -8,
+      "pan": 0,
+      "loop": null,
+      "release": true
+    },
+    {
+      "file": "Fs5-release.mp3",
+      "keycentre": 66,
+      "keyLo": 66,
+      "keyHi": 66,
+      "velLo": 1,
+      "velHi": 127,
+      "tune": -26,
+      "gainDb": -8,
+      "pan": 0,
+      "loop": null,
+      "release": true
+    },
+    {
+      "file": "G5-release.mp3",
+      "keycentre": 67,
+      "keyLo": 67,
+      "keyHi": 68,
+      "velLo": 1,
+      "velHi": 127,
+      "tune": -29,
+      "gainDb": -8,
+      "pan": 0,
+      "loop": null,
+      "release": true
+    },
+    {
+      "file": "A5-release.mp3",
+      "keycentre": 69,
+      "keyLo": 69,
+      "keyHi": 70,
+      "velLo": 1,
+      "velHi": 127,
+      "tune": -20,
+      "gainDb": -8,
+      "pan": 0,
+      "loop": null,
+      "release": true
+    },
+    {
+      "file": "B5-release.mp3",
+      "keycentre": 71,
+      "keyLo": 71,
+      "keyHi": 71,
+      "velLo": 1,
+      "velHi": 127,
+      "tune": -7,
+      "gainDb": -8,
+      "pan": 0,
+      "loop": null,
+      "release": true
+    },
+    {
+      "file": "C6-release.mp3",
+      "keycentre": 72,
+      "keyLo": 72,
+      "keyHi": 73,
+      "velLo": 1,
+      "velHi": 127,
+      "tune": 66,
+      "gainDb": -8,
+      "pan": 0,
+      "loop": null,
+      "release": true
+    },
+    {
+      "file": "D6-release.mp3",
+      "keycentre": 74,
+      "keyLo": 74,
+      "keyHi": 75,
+      "velLo": 1,
+      "velHi": 127,
+      "tune": -16,
+      "gainDb": -8,
+      "pan": 0,
+      "loop": null,
+      "release": true
+    },
+    {
+      "file": "E6-release.mp3",
+      "keycentre": 76,
+      "keyLo": 76,
+      "keyHi": 78,
+      "velLo": 1,
+      "velHi": 127,
+      "tune": -22,
+      "gainDb": -8,
+      "pan": 0,
+      "loop": null,
+      "release": true
+    },
+    {
+      "file": "G6-release.mp3",
+      "keycentre": 79,
+      "keyLo": 79,
+      "keyHi": 127,
+      "velLo": 1,
+      "velHi": 127,
+      "tune": -10,
+      "gainDb": -8,
+      "pan": 0,
+      "loop": null,
+      "release": true
+    }
+  ]
+}
