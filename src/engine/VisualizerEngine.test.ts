@@ -6,14 +6,20 @@ import type { P5Factory, P5Like } from '@/engine/types';
 import type { ParamSpec, Scene, SceneContext, NoteEvent } from '@/engine/scene';
 import type { MidiAccessLike, MidiInputLike, MidiMessageHandler } from '@/engine/midiTypes';
 import type {
+  AudioBufferLike,
+  AudioBufferSourceNodeLike,
   AudioContextLike,
   AudioNodeLike,
   AudioParamLike,
   BiquadFilterNodeLike,
   GainNodeLike,
   OscillatorNodeLike,
+  StereoPannerNodeLike,
   WaveShaperNodeLike,
 } from '@/engine/audio';
+import type { DecodedTone } from '@/engine/sampledTone';
+import type { ToneDefinition } from '@/tones/catalogue';
+import type { ToneLoadOptions, ToneLoader } from '@/tones/toneLoader';
 
 interface RecordedCall {
   name: string;
@@ -1172,6 +1178,7 @@ describe('VisualizerEngine session persistence (T11)', () => {
       virtualInputEnabled: false,
       soundEnabled: true,
       deviceSoundEnabled: false,
+      toneId: 'warm-analog',
     });
   });
 
@@ -2371,6 +2378,23 @@ class SpyWaveShaper implements WaveShaperNodeLike {
   connect(): void {}
 }
 
+class SpyBufferSource implements AudioBufferSourceNodeLike {
+  buffer: AudioBufferLike | null = null;
+  playbackRate = new SpyAudioParam();
+  loop = false;
+  loopStart = 0;
+  loopEnd = 0;
+  started = false;
+  stopped = false;
+  connect(): void {}
+  start(): void {
+    this.started = true;
+  }
+  stop(): void {
+    this.stopped = true;
+  }
+}
+
 class SpyAudioContext implements AudioContextLike {
   currentTime = 0;
   state: AudioContextState = 'running';
@@ -2381,6 +2405,9 @@ class SpyAudioContext implements AudioContextLike {
   // per voice) for a voice tally, and inspect `oscillators` for start/stop state.
   oscillators: SpyOscillator[] = [];
   filters: SpyBiquadFilter[] = [];
+  // A sampled voice plays one buffer source per region.
+  bufferSources: SpyBufferSource[] = [];
+  decodeCalls = 0;
   closed = false;
   createOscillator(): OscillatorNodeLike {
     const osc = new SpyOscillator();
@@ -2397,6 +2424,18 @@ class SpyAudioContext implements AudioContextLike {
   }
   createWaveShaper(): WaveShaperNodeLike {
     return new SpyWaveShaper();
+  }
+  createBufferSource(): AudioBufferSourceNodeLike {
+    const source = new SpyBufferSource();
+    this.bufferSources.push(source);
+    return source;
+  }
+  createStereoPanner(): StereoPannerNodeLike {
+    return { pan: new SpyAudioParam(), connect() {} };
+  }
+  decodeAudioData(): Promise<AudioBufferLike> {
+    this.decodeCalls += 1;
+    return Promise.resolve({ duration: 1 });
   }
   resume(): Promise<void> {
     this.resumeCalls += 1;
@@ -3375,5 +3414,285 @@ describe('VisualizerEngine sidebar support: keeping and resetting settings', () 
 
     expect(engine.activeDeviceId).toBe('dev-b');
     expect(engine.savedDeviceName).toBe('Keyboard B');
+  });
+});
+
+describe('VisualizerEngine Tones', () => {
+  let engines: VisualizerEngine[] = [];
+
+  /** A sampled Tone's decoded files: one region over every key and velocity. */
+  const DECODED: DecodedTone = {
+    regions: [
+      {
+        file: 'C4.mp3',
+        keycentre: 60,
+        keyLo: 0,
+        keyHi: 127,
+        velLo: 1,
+        velHi: 127,
+        tune: 0,
+        gainDb: 0,
+        pan: 0,
+        loop: null,
+        release: false,
+      },
+    ],
+    buffers: new Map([['C4.mp3', { duration: 2 }]]),
+  };
+
+  interface LoadCall {
+    tone: ToneDefinition;
+    options: ToneLoadOptions;
+    resolve: (decoded: DecodedTone) => void;
+    reject: (error: Error) => void;
+  }
+
+  /** A loader that waits until the test settles each load. */
+  function fakeToneLoader() {
+    const calls: LoadCall[] = [];
+    const loader: ToneLoader = (tone, options) =>
+      new Promise((resolve, reject) => calls.push({ tone, options, resolve, reject }));
+    return { loader, calls };
+  }
+
+  function setUpEngine(options: { storage?: FakeStorage; audio?: SpyAudioContext } = {}) {
+    const { factory } = stubP5Factory();
+    const audio = options.audio ?? new SpyAudioContext();
+    const { loader, calls } = fakeToneLoader();
+    const storage = options.storage ?? new FakeStorage();
+    const engine = new VisualizerEngine(document.createElement('div'), {
+      createP5: factory,
+      storage,
+      createAudioContext: () => audio,
+      loadTone: loader,
+    });
+    engines.push(engine);
+    engine.setVirtualInputEnabled(true);
+    return { engine, audio, loads: calls, storage };
+  }
+
+  /** Storage holding a saved setup, as a reload finds it. */
+  function savedStorage(fields: Record<string, unknown>): FakeStorage {
+    const storage = new FakeStorage();
+    storage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        version: 1,
+        activeSceneId: null,
+        paramValues: {},
+        deviceName: null,
+        resolutionPreset: '1600x800',
+        soundEnabled: true,
+        ...fields,
+      }),
+    );
+    return storage;
+  }
+
+  const keydown = (code: string) =>
+    window.dispatchEvent(new KeyboardEvent('keydown', { code, bubbles: true, cancelable: true }));
+  const keyup = (code: string) =>
+    window.dispatchEvent(new KeyboardEvent('keyup', { code, bubbles: true }));
+
+  /** What a computer key sounds with: a Warm Analog voice (a low-pass filter) or a sampled one. */
+  function sounds(audio: SpyAudioContext, code: string): 'warm-analog' | 'sampled' | 'nothing' {
+    const [filters, sources] = [audio.filters.length, audio.bufferSources.length];
+    keydown(code);
+    keyup(code);
+    if (audio.bufferSources.length > sources) return 'sampled';
+    return audio.filters.length > filters ? 'warm-analog' : 'nothing';
+  }
+
+  afterEach(() => {
+    for (const engine of engines) engine.destroy();
+    engines = [];
+  });
+
+  it('starts on Warm Analog, ready, and loads nothing', () => {
+    const { engine, audio, loads } = setUpEngine();
+
+    expect(engine.toneId).toBe('warm-analog');
+    expect(engine.toneStatus).toBe('ready');
+    expect(loads).toHaveLength(0);
+    expect(sounds(audio, 'KeyA')).toBe('warm-analog');
+  });
+
+  it("picking the Accordion starts its load, decoding through the Tone Player's context", async () => {
+    const { engine, audio, loads } = setUpEngine();
+
+    engine.selectTone('accordion');
+
+    expect(engine.toneId).toBe('accordion');
+    expect(engine.toneStatus).toBe('loading');
+    expect(loads.map((l) => l.tone.id)).toEqual(['accordion']);
+    await loads[0].options.decode(new ArrayBuffer(4));
+    expect(audio.decodeCalls).toBe(1);
+  });
+
+  it('picking a Tone is a gesture: it creates and resumes audio', () => {
+    const audio = new SpyAudioContext();
+    audio.state = 'suspended';
+    const { engine } = setUpEngine({ audio });
+
+    engine.selectTone('accordion');
+
+    expect(audio.resumeCalls).toBe(1);
+  });
+
+  it('keeps Warm Analog playing until the Accordion is ready, then sounds it from the next note', async () => {
+    const { engine, audio, loads } = setUpEngine();
+    const listener = vi.fn();
+    engine.subscribe(listener);
+    engine.selectTone('accordion');
+    expect(sounds(audio, 'KeyA')).toBe('warm-analog');
+    listener.mockClear();
+
+    loads[0].resolve(DECODED);
+    await flushMicrotasks();
+
+    expect(engine.toneStatus).toBe('ready');
+    expect(listener).toHaveBeenCalled();
+    expect(sounds(audio, 'KeyA')).toBe('sampled');
+  });
+
+  it('lets a note held across the switch finish on Warm Analog', async () => {
+    const { engine, audio, loads } = setUpEngine();
+    engine.selectTone('accordion');
+    keydown('KeyA');
+    const heldVoice = audio.oscillators.slice();
+
+    loads[0].resolve(DECODED);
+    await flushMicrotasks();
+
+    expect(heldVoice.every((o) => !o.stopped)).toBe(true);
+    keyup('KeyA');
+    expect(heldVoice.every((o) => o.stopped)).toBe(true);
+    expect(audio.bufferSources).toHaveLength(0);
+  });
+
+  it('keeps Warm Analog playing when the load fails, with the Accordion still picked', async () => {
+    const { engine, audio, loads } = setUpEngine();
+    engine.selectTone('accordion');
+
+    loads[0].reject(new Error('404'));
+    await flushMicrotasks();
+
+    expect(engine.toneStatus).toBe('failed');
+    expect(engine.toneId).toBe('accordion');
+    expect(sounds(audio, 'KeyA')).toBe('warm-analog');
+  });
+
+  it('does not load the picked Tone again when it is picked again', async () => {
+    const { engine, loads } = setUpEngine();
+    engine.selectTone('accordion');
+    engine.selectTone('accordion');
+    loads[0].resolve(DECODED);
+    await flushMicrotasks();
+
+    engine.selectTone('accordion');
+
+    expect(loads).toHaveLength(1);
+    expect(engine.toneStatus).toBe('ready');
+  });
+
+  it('goes back to Warm Analog from the next note when it is picked, letting the Accordion go', async () => {
+    const { engine, audio, loads } = setUpEngine();
+    engine.selectTone('accordion');
+    loads[0].resolve(DECODED);
+    await flushMicrotasks();
+
+    engine.selectTone('warm-analog');
+
+    expect(engine.toneStatus).toBe('ready');
+    expect(sounds(audio, 'KeyA')).toBe('warm-analog');
+  });
+
+  it('never lets a load a newer pick replaced take over, and aborts it', async () => {
+    const { engine, audio, loads } = setUpEngine();
+    engine.selectTone('accordion');
+    engine.selectTone('warm-analog');
+
+    loads[0].resolve(DECODED);
+    await flushMicrotasks();
+
+    expect(loads[0].options.signal?.aborted).toBe(true);
+    expect(engine.toneStatus).toBe('ready');
+    expect(sounds(audio, 'KeyA')).toBe('warm-analog');
+  });
+
+  it('downloads nothing while sound is Off: a load still running stops, and starts again with sound', () => {
+    const { engine, loads } = setUpEngine();
+    engine.selectTone('accordion');
+
+    engine.setSoundGates({ soundEnabled: false, deviceSoundEnabled: false });
+
+    expect(loads[0].options.signal?.aborted).toBe(true);
+    expect(engine.toneStatus).toBe('idle');
+
+    engine.setSoundGates({ soundEnabled: true, deviceSoundEnabled: false });
+
+    expect(loads).toHaveLength(2);
+    expect(engine.toneStatus).toBe('loading');
+  });
+
+  it('falls back to Warm Analog for a pick the catalogue does not hold', () => {
+    const { engine, loads } = setUpEngine();
+    engine.selectTone('accordion');
+
+    engine.selectTone('theremin');
+
+    expect(engine.toneId).toBe('warm-analog');
+    expect(loads[0].options.signal?.aborted).toBe(true);
+  });
+
+  describe('the saved Tone', () => {
+    it('saves the pick as toneId', () => {
+      const { engine, storage } = setUpEngine();
+
+      engine.selectTone('accordion');
+
+      expect(JSON.parse(storage.getItem(STORAGE_KEY)!).toneId).toBe('accordion');
+    });
+
+    it('restores a saved sampled Tone and loads it, while sound is on', () => {
+      const { engine, loads } = setUpEngine({ storage: savedStorage({ toneId: 'accordion' }) });
+
+      expect(engine.toneId).toBe('accordion');
+      expect(loads.map((l) => l.tone.id)).toEqual(['accordion']);
+    });
+
+    it('falls back to Warm Analog for a saved id the catalogue no longer holds, or none at all', () => {
+      for (const fields of [{ toneId: 'grand-piano-v0' }, { toneId: 7 }, {}]) {
+        const { engine, loads } = setUpEngine({ storage: savedStorage(fields) });
+
+        expect(engine.toneId).toBe('warm-analog');
+        expect(loads).toHaveLength(0);
+      }
+    });
+
+    it('waits for sound to turn on before loading a Tone saved with sound Off', () => {
+      const { engine, loads } = setUpEngine({
+        storage: savedStorage({ toneId: 'accordion', soundEnabled: false }),
+      });
+      expect(loads).toHaveLength(0);
+
+      engine.setSoundGates({ soundEnabled: true, deviceSoundEnabled: false });
+
+      expect(loads.map((l) => l.tone.id)).toEqual(['accordion']);
+    });
+
+    it('resetAllSettings goes back to Warm Analog', async () => {
+      const { engine, audio, loads, storage } = setUpEngine();
+      engine.selectTone('accordion');
+      loads[0].resolve(DECODED);
+      await flushMicrotasks();
+
+      engine.resetAllSettings();
+      engine.setVirtualInputEnabled(true);
+
+      expect(engine.toneId).toBe('warm-analog');
+      expect(JSON.parse(storage.getItem(STORAGE_KEY)!).toneId).toBe('warm-analog');
+      expect(sounds(audio, 'KeyA')).toBe('warm-analog');
+    });
   });
 });

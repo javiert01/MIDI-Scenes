@@ -42,6 +42,30 @@ export interface WaveShaperNodeLike extends AudioNodeLike {
   oversample: OverSampleType;
 }
 
+/** Decoded audio: one sample of a sampled Tone, held in memory while the Tone is. */
+export interface AudioBufferLike {
+  /** Seconds, at the buffer's own rate. */
+  readonly duration: number;
+}
+
+/** Plays one decoded sample; a sampled Tone's voice is one per matching region. */
+export interface AudioBufferSourceNodeLike extends AudioNodeLike {
+  buffer: AudioBufferLike | null;
+  playbackRate: AudioParamLike;
+  loop: boolean;
+  /** Seconds into the buffer. */
+  loopStart: number;
+  /** Seconds into the buffer, exclusive. */
+  loopEnd: number;
+  start(when?: number): void;
+  stop(when?: number): void;
+}
+
+/** Places a voice between the speakers, −1 (left) to 1 (right). */
+export interface StereoPannerNodeLike extends AudioNodeLike {
+  pan: AudioParamLike;
+}
+
 /** The subset of `AudioContext` the Tone Player depends on; lets tests inject a fake. */
 export interface AudioContextLike {
   readonly currentTime: number;
@@ -53,6 +77,10 @@ export interface AudioContextLike {
   createGain(): GainNodeLike;
   createBiquadFilter(): BiquadFilterNodeLike;
   createWaveShaper(): WaveShaperNodeLike;
+  createBufferSource(): AudioBufferSourceNodeLike;
+  createStereoPanner(): StereoPannerNodeLike;
+  /** Decodes a sampled Tone's file. Works on a suspended context too. */
+  decodeAudioData(data: ArrayBuffer): Promise<AudioBufferLike>;
   resume?(): Promise<void>;
   close?(): Promise<void>;
 }

@@ -9,8 +9,11 @@ import { clampOctaveShift, noteForKey, octaveLabel, octaveShiftForKey } from './
 import type { MidiAccessLike, MidiFactory } from './midiTypes';
 import { defaultMidiFactory } from './webMidiAdapter';
 import type { AudioContextFactory } from './audio';
-import { TonePlayer } from './tonePlayer';
+import { type Tone, TonePlayer } from './tonePlayer';
 import { WARM_ANALOG } from './warmAnalog';
+import { createSampledTone } from './sampledTone';
+import { DEFAULT_TONE_ID, type ToneDefinition, toneById } from '@/tones/catalogue';
+import { type ToneLoader, loadTone as defaultToneLoader } from '@/tones/toneLoader';
 import { NoteLedger, type NoteSource, type ReleaseResult } from './noteLedger';
 
 /** Fixed velocity (0–127) every synthetic Virtual Input note carries; see ADR-0005. */
@@ -67,6 +70,16 @@ const DEFAULT_SOUND_ENABLED = true;
 /** Off by default, so a recording captures no Device sound unless the user opts in (ADR-0009). */
 const DEFAULT_DEVICE_SOUND_ENABLED = false;
 
+/** Synthesised Tones, by id. They need no download, so they're ready the moment they're picked. */
+const SYNTH_TONES: Record<string, Tone> = { [WARM_ANALOG.id]: WARM_ANALOG };
+
+/**
+ * Where the selected Tone stands. A synthesised Tone is always `ready`. A sampled
+ * one is `idle` until sound is on, `loading` while it downloads and decodes, then
+ * `ready`, or `failed` with Warm Analog playing in its place.
+ */
+export type ToneStatus = 'idle' | 'loading' | 'ready' | 'failed';
+
 /** Single versioned key holding the whole remembered setup (Scene, params, Device, etc). */
 export const STORAGE_KEY = 'midiviz.v1';
 
@@ -118,6 +131,8 @@ export interface PersistedStateV1 {
   soundEnabled: boolean;
   /** Whether the Tone Player sounds the Device's notes. Optional, and off when absent (ADR-0009). */
   deviceSoundEnabled?: boolean;
+  /** The selected Tone. Optional: absent, or an id the catalogue no longer holds, means Warm Analog. */
+  toneId?: string;
 }
 
 /** The two stored sound gates the sidebar's Sound strip maps onto. */
@@ -177,6 +192,8 @@ export interface VisualizerEngineOptions {
   storage?: Storage;
   /** Injected AudioContext factory for the Tone Player; defaults to the real browser context. */
   createAudioContext?: AudioContextFactory;
+  /** Injected Tone loader for sampled Tones; defaults to downloading the committed assets. */
+  loadTone?: ToneLoader;
 }
 
 function defaultParamValues(specs: ParamSpec[]): Record<string, ParamValue> {
@@ -260,6 +277,13 @@ export class VisualizerEngine {
   private soundEnabledState = DEFAULT_SOUND_ENABLED;
   private deviceSoundEnabledState = DEFAULT_DEVICE_SOUND_ENABLED;
   private readonly tonePlayer: TonePlayer;
+  // The selected Tone. A sampled one plays only once it has loaded; until then,
+  // or if it fails, Warm Analog plays in its place.
+  private toneIdState = DEFAULT_TONE_ID;
+  private toneStatusState: ToneStatus = 'ready';
+  private readonly loadTone: ToneLoader;
+  // The sampled Tone load still running, if any. A newer pick aborts it.
+  private toneLoad: AbortController | null = null;
   // The Holds of the sources that sound: both Virtual Input surfaces share the
   // Tone Player's one `virtual` source, so a voice ends only on its note's last
   // sounding Hold. Kept apart from `notes` because what sounds and what shows can
@@ -335,6 +359,8 @@ export class VisualizerEngine {
         if (!this.destroyed) this.notify();
       },
     });
+
+    this.loadTone = options.loadTone ?? defaultToneLoader;
 
     this.registry = new SceneRegistry(options.scenes ?? []);
     for (const scene of this.registry.list()) {
@@ -554,6 +580,85 @@ export class VisualizerEngine {
     return seconds === null ? null : seconds * 1000;
   }
 
+  /** The selected Tone's id. Default Warm Analog. */
+  get toneId(): string {
+    return this.toneIdState;
+  }
+
+  /** Whether the selected Tone is playing yet, or Warm Analog is standing in for it. */
+  get toneStatus(): ToneStatus {
+    return this.toneStatusState;
+  }
+
+  /**
+   * Picks the Tone notes sound with, as the Sound strip's dropdown does. Picking
+   * is a gesture, so it creates and resumes audio. A sampled Tone starts loading,
+   * with Warm Analog playing until it's ready; it then takes over from the next
+   * note. Re-picking the selected Tone loads nothing. An id the catalogue doesn't
+   * hold picks Warm Analog.
+   */
+  selectTone(id: string): void {
+    this.tonePlayer.start();
+    if (!this.useTone(toneById(id).id)) return;
+    this.persist();
+    this.notify();
+  }
+
+  /** Makes `toneId` the selected Tone and plays it. Returns false, doing nothing, if it already is. */
+  private useTone(toneId: string): boolean {
+    if (toneId === this.toneIdState) return false;
+    this.toneIdState = toneId;
+    this.applyTone();
+    return true;
+  }
+
+  /**
+   * Plays the selected Tone: a synthesised one at once, a sampled one once it has
+   * loaded, with Warm Analog until then. Voices already sounding finish on their
+   * old Tone, and the Tone Player lets an old sampled Tone go after its last
+   * voice, so only the selected sampled Tone stays held. A sampled Tone loads only
+   * while sound is on.
+   */
+  private applyTone(): void {
+    this.toneLoad?.abort();
+    this.toneLoad = null;
+    const tone = toneById(this.toneIdState);
+    if (tone.kind === 'synth') {
+      this.tonePlayer.setTone(SYNTH_TONES[tone.id] ?? WARM_ANALOG);
+      this.toneStatusState = 'ready';
+      return;
+    }
+    this.tonePlayer.setTone(WARM_ANALOG);
+    this.toneStatusState = 'idle';
+    if (this.soundIsOn) this.startToneLoad(tone);
+  }
+
+  /** Downloads and decodes a sampled Tone, then hands it to the Tone Player, unless a newer pick replaced it. */
+  private startToneLoad(tone: ToneDefinition): void {
+    const load = new AbortController();
+    this.toneLoad = load;
+    this.toneStatusState = 'loading';
+    const current = () => load === this.toneLoad && !this.destroyed;
+    this.loadTone(tone, {
+      decode: (data) => this.tonePlayer.decodeAudioData(data),
+      signal: load.signal,
+    }).then(
+      (decoded) => {
+        if (!current()) return;
+        this.toneLoad = null;
+        this.tonePlayer.setTone(createSampledTone(tone, decoded));
+        this.toneStatusState = 'ready';
+        this.notify();
+      },
+      () => {
+        if (!current()) return;
+        this.toneLoad = null;
+        this.toneStatusState = 'failed';
+        this.notify();
+      },
+    );
+  }
+
   /** Bumped on every dispatched note-on/off; sidebar can diff it to flash an activity indicator. */
   get activityTick(): number {
     return this.noteActivityTick;
@@ -643,6 +748,8 @@ export class VisualizerEngine {
     this.applyResolutionPreset(DEFAULT_PRESET);
     if (this.virtualInputEnabledState) this.releaseVirtualNotes();
     this.virtualInputEnabledState = DEFAULT_VIRTUAL_INPUT_ENABLED;
+    // The Tone first, so turning sound back on never starts loading the old one.
+    this.useTone(DEFAULT_TONE_ID);
     this.applySoundGates({
       soundEnabled: DEFAULT_SOUND_ENABLED,
       deviceSoundEnabled: DEFAULT_DEVICE_SOUND_ENABLED,
@@ -761,10 +868,19 @@ export class VisualizerEngine {
     const device = gateChange(this.deviceSoundEnabledState, gates.deviceSoundEnabled);
     this.soundEnabledState = gates.soundEnabled;
     this.deviceSoundEnabledState = gates.deviceSoundEnabled;
-    if (!this.soundIsOn) this.tonePlayer.silenceAll();
-    else {
+    if (!this.soundIsOn) {
+      this.tonePlayer.silenceAll();
+      // Nothing downloads while sound is Off: a load still running waits for sound to come back.
+      if (this.toneLoad) {
+        this.toneLoad.abort();
+        this.toneLoad = null;
+        this.toneStatusState = 'idle';
+      }
+    } else {
       if (virtual === 'off') this.tonePlayer.releaseSource('virtual');
       if (device === 'off') this.tonePlayer.releaseSource('device');
+      // A sampled Tone picked or restored while sound was Off loads now.
+      if (this.toneStatusState === 'idle') this.startToneLoad(toneById(this.toneIdState));
     }
     return {
       changed: virtual !== 'same' || device !== 'same',
@@ -807,6 +923,7 @@ export class VisualizerEngine {
       virtualInputEnabled: this.virtualInputEnabledState,
       soundEnabled: this.soundEnabledState,
       deviceSoundEnabled: this.deviceSoundEnabledState,
+      toneId: this.toneIdState,
     };
   }
 
@@ -873,6 +990,9 @@ export class VisualizerEngine {
           : this.deviceSoundEnabledState,
     });
 
+    // Absent in older snapshots; an id the catalogue no longer holds means Warm Analog.
+    if ('toneId' in state) this.useTone(toneById(state.toneId).id);
+
     if (
       typeof state.resolutionPreset === 'string' &&
       state.resolutionPreset in RESOLUTION_PRESETS
@@ -909,6 +1029,7 @@ export class VisualizerEngine {
   /** Stops the draw loop and removes the p5 canvas. Call on unmount. */
   destroy(): void {
     this.destroyed = true;
+    this.toneLoad?.abort();
     this.activeScene?.teardown();
     this.tonePlayer.dispose();
     this.unwireActiveDevice();

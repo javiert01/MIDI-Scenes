@@ -3,6 +3,7 @@
 // tested without React or real audio (see `deviceStatus.ts`).
 
 import type { SoundGates } from '@/engine/VisualizerEngine';
+import { type ToneMenu, toneMenu } from '@/tones/catalogue';
 
 /** The strip's three segments: nothing sounds, the Virtual Input sounds, or every note does. */
 export type SoundMode = 'off' | 'computer' | 'all';
@@ -18,6 +19,8 @@ export interface SoundState extends SoundGates {
   audioSuspended: boolean;
   /** The context's output latency, or null where the browser doesn't report it. */
   outputLatencyMs: number | null;
+  /** The selected Tone. */
+  toneId: string;
 }
 
 export interface SoundStripView {
@@ -26,13 +29,18 @@ export interface SoundStripView {
   latencyHint: string | null;
   /** What the Device card says while Device sound waits for a gesture, or null. */
   deviceHint: string | null;
+  /** The Tone dropdown, shown whenever sound isn't Off, or null. */
+  tonePicker: { menu: ToneMenu; selected: string } | null;
 }
+
+/** The catalogue is fixed, so the dropdown's layout is built once. */
+const TONE_MENU = toneMenu();
 
 /** Output latency above this is worth warning about (ms). */
 const LATENCY_HINT_THRESHOLD_MS = 60;
 
 export function describeSoundStrip(state: SoundState): SoundStripView {
-  const { soundEnabled, deviceSoundEnabled, audioSuspended, outputLatencyMs } = state;
+  const { soundEnabled, deviceSoundEnabled, audioSuspended, outputLatencyMs, toneId } = state;
   // Device sound on with Virtual Input sound off can't be picked from the strip,
   // but is accepted if saved (spec #53). It shows as All notes, so a Device that
   // would sound into a recording is never shown as quiet.
@@ -49,7 +57,9 @@ export function describeSoundStrip(state: SoundState): SoundStripView {
   const deviceHint =
     deviceSoundEnabled && audioSuspended ? 'Click anywhere to turn sound on' : null;
 
-  return { mode, latencyHint, deviceHint };
+  const tonePicker = mode === 'off' ? null : { menu: TONE_MENU, selected: toneId };
+
+  return { mode, latencyHint, deviceHint, tonePicker };
 }
 
 /** The stored gates a segment sets. */

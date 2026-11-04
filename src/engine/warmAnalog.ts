@@ -6,7 +6,11 @@
  * release tail so a note-off never clicks. It ignores velocity.
  */
 import type { AudioContextLike, AudioNodeLike, GainNodeLike, OscillatorNodeLike } from './audio';
-import type { SynthTone, ToneVoice } from './tonePlayer';
+import type { Tone, ToneVoice } from './tonePlayer';
+import { DEFAULT_TONE_ID, toneById } from '@/tones/catalogue';
+
+/** Its fixed gain, attack and release, from the Tone catalogue. */
+const DEFINITION = toneById(DEFAULT_TONE_ID);
 
 /** Waveform of the unison oscillators — harmonically rich, tamed by the filter. */
 const OSC_TYPE: OscillatorType = 'sawtooth';
@@ -30,8 +34,8 @@ const FILTER_SUSTAIN_MULTIPLE = 6; // settles warmer while the note is held
 /** Cutoff bounds (Hz) so the filter neither closes to a thud nor opens past usefulness. */
 const FILTER_MIN_HZ = 500;
 const FILTER_MAX_HZ = 16000;
-/** Fast attack so notes speak immediately (seconds). */
-const ATTACK_SECONDS = 0.01;
+/** Fast attack so notes speak immediately (seconds), from the catalogue. */
+const ATTACK_SECONDS = DEFINITION.attackSeconds;
 /** Brief decay from peak to the sustain level (seconds). */
 const DECAY_SECONDS = 0.08;
 /**
@@ -44,8 +48,8 @@ const VOICE_LEVEL = 0.15;
 const PEAK_LEVEL = 1 * VOICE_LEVEL;
 /** Envelope level a held note settles to. */
 const SUSTAIN_LEVEL = 0.7 * VOICE_LEVEL;
-/** Short release tail on note-off (~200 ms), avoiding a hard click. */
-const RELEASE_SECONDS = 0.2;
+/** Short release tail on note-off, from the catalogue, avoiding a hard click. */
+const RELEASE_SECONDS = DEFINITION.releaseSeconds;
 
 /** Equal-tempered MIDI note number to frequency in Hz (A4 = note 69 = 440 Hz). */
 export function midiToFrequency(note: number): number {
@@ -135,9 +139,11 @@ function startVoice(ctx: AudioContextLike, note: number, output: AudioNodeLike):
 }
 
 /** Warm Analog: first in the Tone list and the default. Fixed gain 0 dB, the reference level. */
-export const WARM_ANALOG: SynthTone = {
-  id: 'warm-analog',
-  gainDb: 0,
+export const WARM_ANALOG: Tone = {
+  id: DEFINITION.id,
+  gainDb: DEFINITION.gainDb,
+  // Synthesised, so every note has a sound.
+  sounds: () => true,
   // Ignores velocity, as the Preview Synth did.
   startVoice: (ctx, note, _velocity, output) => startVoice(ctx, note, output),
 };

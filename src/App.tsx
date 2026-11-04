@@ -203,12 +203,19 @@ function useSoundStrip(engine: VisualizerEngine): SoundStripView {
   const deviceSoundEnabled = useEngineValue(engine, (e) => e.deviceSoundEnabled);
   const audioSuspended = useEngineValue(engine, (e) => e.audioSuspended);
   const outputLatencyMs = useEngineValue(engine, (e) => e.audioOutputLatencyMs);
-  return describeSoundStrip({ soundEnabled, deviceSoundEnabled, audioSuspended, outputLatencyMs });
+  const toneId = useEngineValue(engine, (e) => e.toneId);
+  return describeSoundStrip({
+    soundEnabled,
+    deviceSoundEnabled,
+    audioSuspended,
+    outputLatencyMs,
+    toneId,
+  });
 }
 
 /**
  * Always on screen and never collapses, directly under the Device card. Clicking
- * a segment is the gesture that creates and resumes audio.
+ * a segment, or picking a Tone, is the gesture that creates and resumes audio.
  */
 function SoundStrip({ engine }: { engine: VisualizerEngine }) {
   const strip = useSoundStrip(engine);
@@ -225,6 +232,33 @@ function SoundStrip({ engine }: { engine: VisualizerEngine }) {
         value={strip.mode}
         onChange={(mode) => engine.setSoundGates(gatesForSoundMode(mode))}
       />
+      {strip.tonePicker && (
+        <label className="field sound-strip-tone">
+          <span className="field-label">Tone</span>
+          <select
+            value={strip.tonePicker.selected}
+            onChange={(event) => {
+              engine.selectTone(event.target.value);
+              // A focused dropdown would keep the computer keyboard from playing
+              // the Tone just picked (see isEditableTarget in the engine).
+              event.target.blur();
+            }}
+          >
+            <option value={strip.tonePicker.menu.first.id}>
+              {strip.tonePicker.menu.first.name}
+            </option>
+            {strip.tonePicker.menu.groups.map((group) => (
+              <optgroup key={group.genre} label={group.genre}>
+                {group.tones.map((tone) => (
+                  <option key={tone.id} value={tone.id}>
+                    {tone.name}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+        </label>
+      )}
       {strip.latencyHint && <p className="field-hint">{strip.latencyHint}</p>}
     </section>
   );

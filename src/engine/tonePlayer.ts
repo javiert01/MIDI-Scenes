@@ -10,6 +10,7 @@
  * soft-clip wave-shaper ceiling -> destination.
  */
 import {
+  type AudioBufferLike,
   type AudioContextFactory,
   type AudioContextLike,
   type AudioNodeLike,
@@ -32,11 +33,16 @@ export interface ToneVoice {
   stop(time: number): void;
 }
 
-/** A synthesised Tone: builds a voice for each note, routed into `output`. */
-export interface SynthTone {
+/**
+ * A Tone the Tone Player can sound: synthesised, or sampled from decoded
+ * buffers. Builds a voice for each note, routed into `output`.
+ */
+export interface Tone {
   id: string;
   /** The Tone's fixed gain, matched to Warm Analog (0 dB) by ear. */
   gainDb: number;
+  /** Whether the Tone has a sound for `note` at `velocity`. Outside every region a sampled Tone has none. */
+  sounds(note: number, velocity: number): boolean;
   startVoice(
     ctx: AudioContextLike,
     note: number,
@@ -84,8 +90,8 @@ function ceilingCurve(): Float32Array {
 }
 
 export interface TonePlayerOptions {
-  /** The Tone notes sound with. */
-  tone: SynthTone;
+  /** The Tone notes sound with until `setTone` picks another. */
+  tone: Tone;
   /** Injected AudioContext factory; defaults to the real browser context. */
   createAudioContext?: AudioContextFactory;
   /** Called once a suspended context has resumed. */
@@ -94,6 +100,8 @@ export interface TonePlayerOptions {
 
 interface Voice {
   note: number;
+  /** The Tone the voice sounds with, kept across a switch so the voice finishes on it. */
+  tone: Tone;
   /** The sources keeping the note down. Empty once the voice is releasing. */
   holders: Set<SoundSource>;
   /** When a releasing voice falls silent; Infinity while held. */
@@ -106,7 +114,7 @@ interface Voice {
 
 export class TonePlayer {
   private readonly createAudioContext: AudioContextFactory;
-  private readonly tone: SynthTone;
+  private tone: Tone;
   private readonly onResumed?: () => void;
   private ctx: AudioContextLike | null = null;
   private master: GainNodeLike | null = null;
@@ -131,15 +139,47 @@ export class TonePlayer {
     return this.ctx?.state === 'suspended';
   }
 
+  /**
+   * The ids of the Tones the player still holds: the selected one first, then
+   * any it was switched away from whose voices still sound. A Tone is let go,
+   * with its buffers, at the first note or switch after its last voice ends: the
+   * player keeps no timers, and that is as soon as a released note is noticed.
+   */
+  get heldToneIds(): string[] {
+    const ids = [this.tone.id];
+    for (const voice of this.voices) if (!ids.includes(voice.tone.id)) ids.push(voice.tone.id);
+    return ids;
+  }
+
   /** The context's output latency in seconds, or null before a context exists or where it isn't reported. */
   get outputLatency(): number | null {
     return this.ctx?.outputLatency ?? null;
   }
 
   /**
+   * Sounds every note from the next one with `tone`. Voices already sounding
+   * finish on their old Tone, at its gain.
+   */
+  setTone(tone: Tone): void {
+    this.tone = tone;
+    if (this.ctx) this.forgetEnded(this.ctx.currentTime);
+  }
+
+  /**
+   * Decodes a sampled Tone's file through the context, creating it (without
+   * resuming it) if need be. Rejects where Web Audio is unavailable.
+   */
+  decodeAudioData(data: ArrayBuffer): Promise<AudioBufferLike> {
+    const ctx = this.ensureContext();
+    if (!ctx) return Promise.reject(new Error('Web Audio API is unavailable'));
+    return ctx.decodeAudioData(data);
+  }
+
+  /**
    * Sounds `note` for `source`. `velocity` is the raw MIDI value, 1..127. A note
    * another source already holds gains a hold with no new attack; a note this
-   * source already holds retriggers, its old voice releasing.
+   * source already holds retriggers, its old voice releasing. A note the Tone
+   * has no sound for stays silent and takes no voice.
    */
   noteOn(source: SoundSource, note: number, velocity: number): void {
     const ctx = this.start();
@@ -151,16 +191,19 @@ export class TonePlayer {
       return;
     }
     if (held) this.release(held, ctx.currentTime);
+    const tone = this.tone;
+    if (!tone.sounds(note, velocity)) return;
     this.makeRoom(ctx.currentTime);
 
     const output = ctx.createGain();
-    output.gain.setValueAtTime(dbToGain(this.tone.gainDb), ctx.currentTime);
+    output.gain.setValueAtTime(dbToGain(tone.gainDb), ctx.currentTime);
     output.connect(this.master);
     this.voices.push({
       note,
+      tone,
       holders: new Set([source]),
       endTime: Infinity,
-      sound: this.tone.startVoice(ctx, note, velocity, output),
+      sound: tone.startVoice(ctx, note, velocity, output),
       output,
     });
   }
@@ -253,12 +296,17 @@ export class TonePlayer {
    * (Pedal-held voices will rank between the two once the pedal arrives.)
    */
   private makeRoom(now: number): void {
-    for (let i = this.voices.length - 1; i >= 0; i -= 1) {
-      if (this.voices[i].endTime <= now) this.voices.splice(i, 1);
-    }
+    this.forgetEnded(now);
     if (this.voices.length < MAX_VOICES) return;
     const victim = this.voices.find((v) => v.holders.size === 0) ?? this.voices[0];
     this.fadeOut(victim, now);
+  }
+
+  /** Forgets release tails that have fallen silent, and with them any Tone only they still held. */
+  private forgetEnded(now: number): void {
+    for (let i = this.voices.length - 1; i >= 0; i -= 1) {
+      if (this.voices[i].endTime <= now) this.voices.splice(i, 1);
+    }
   }
 
   /** Fades a voice out over 20 ms and forgets it, whatever state it was in. */
