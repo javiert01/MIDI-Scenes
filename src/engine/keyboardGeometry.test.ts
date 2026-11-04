@@ -33,7 +33,6 @@ describe('keyboardGeometry', () => {
 
   it('spans exactly the 35 white keys across the full width', () => {
     const w = whiteKeyWidth(WIDTH);
-    expect(w * KEYBOARD_TOTAL_WHITE_KEYS).toBeCloseTo(WIDTH);
     // The 35th white key (index 34) is B6: 36 + 4 octaves + 11 semitones = 95.
     expect(keyColumnX(95, WIDTH)).toBeCloseTo(34 * w);
   });

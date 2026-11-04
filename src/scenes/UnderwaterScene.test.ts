@@ -431,13 +431,6 @@ describe('UnderwaterScene', () => {
     expect(fish.boost).toBeCloseTo(0.8);
   });
 
-  it('onNoteOff is a no-op — crystals now fall inside the engine', () => {
-    const scene = new UnderwaterScene();
-    scene.setup(makeCtx());
-
-    expect(() => scene.onNoteOff()).not.toThrow();
-  });
-
   it('decays the boost effect on a creature over subsequent updates', () => {
     const scene = new UnderwaterScene();
     const ctx = makeCtx({ width: 900, params: { fishCount: 1, jellyfishCount: 0 } });

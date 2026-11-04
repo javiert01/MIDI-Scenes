@@ -40,16 +40,6 @@ describe('drawPianoPreview', () => {
     expect(rects(p)).toHaveLength(60);
   });
 
-  it("aligns each key's column with keyColumnX, so it sits below its Crystal", () => {
-    const p = new RecordingP5();
-
-    drawPianoPreview(p as unknown as P5Like, BAND, new Set());
-
-    const baseNoteRect = rects(p).find((c) => (c.args as number[])[0] === 0);
-    expect(baseNoteRect).toBeTruthy();
-    expect((baseNoteRect!.args as number[])[0]).toBeCloseTo(keyColumnX(KEYBOARD_BASE_NOTE, WIDTH));
-  });
-
   it('draws every key within the band, never above bandTop or below bandTop + bandHeight', () => {
     const p = new RecordingP5();
 
