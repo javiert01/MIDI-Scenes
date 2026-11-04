@@ -119,16 +119,10 @@ be held on screen while silent.
 _Avoid_: Press (a press is the event that starts a Hold), voice (a voice is what
 sounds a note), touch.
 
-**Preview Synth** _(being replaced by the Tone Player, ADR-0009)_:
-The engine-owned synthesizer that makes Virtual Input notes audible today, with a
-single warm-analog sound. The Tone Player replaces it, and its sound carries over as
-the Warm Analog Tone. This entry goes once the Tone Player lands.
-_Avoid_: Using it for the Tone Player, or for any Tone.
-
 **Tone**:
 One selectable sound that notes can be played with: a recognisable instrument such
-as Grand Piano or Accordion, or a synthetic sound such as Warm Analog (the default,
-carried over from the Preview Synth) or Villera Lead. One Tone sounds at a time, and
+as Grand Piano or Accordion, or a synthetic sound such as Warm Analog (the default)
+or Villera Lead. One Tone sounds at a time, and
 its character is fixed: the user picks a Tone, they don't tune it.
 _Avoid_: Instrument (a real Device is the instrument), patch, preset, voice (a voice
 is one sounding note, not a choice of sound).
@@ -143,8 +137,8 @@ The engine-owned player that sounds notes with the selected Tone. Virtual Input
 notes sound through it, and a Device's notes do only when the user opts in, since a
 Device is usually voiced elsewhere. A Device's sustain pedal and pitch bend shape
 everything it sounds, but never the visuals. Not an Overlay: it draws nothing.
-_Avoid_: Preview Synth (the stand-in it replaces), sampler (how it sounds a Tone, not
-what it is), Overlay.
+_Avoid_: Preview Synth (the stand-in it replaced, ADR-0007), sampler (how it sounds
+a Tone, not what it is), Overlay.
 
 **Chroma Key area**:
 The green-filled bottom third of the canvas, kept for compositing piano-hands

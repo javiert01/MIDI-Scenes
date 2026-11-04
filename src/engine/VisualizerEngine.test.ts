@@ -12,7 +12,8 @@ import type {
   BiquadFilterNodeLike,
   GainNodeLike,
   OscillatorNodeLike,
-} from '@/engine/previewSynth';
+  WaveShaperNodeLike,
+} from '@/engine/audio';
 
 interface RecordedCall {
   name: string;
@@ -2325,9 +2326,9 @@ describe('VisualizerEngine Virtual Input (T19)', () => {
   });
 });
 
-// The Preview Synth (see ADR-0007) makes Virtual Input notes audible. These spy
+// The Tone Player (see ADR-0009) makes Virtual Input notes audible. These spy
 // nodes let a test assert that a note created (or stopped) a voice, without any
-// real Web Audio — mirroring the fakes in previewSynth.test.ts.
+// real Web Audio — mirroring the fakes in tonePlayer.test.ts.
 class SpyAudioParam implements AudioParamLike {
   value = 0;
   setValueAtTime(value: number): void {
@@ -2363,9 +2364,16 @@ class SpyBiquadFilter implements BiquadFilterNodeLike {
   connect(): void {}
 }
 
+class SpyWaveShaper implements WaveShaperNodeLike {
+  curve: Float32Array | null = null;
+  oversample: OverSampleType = 'none';
+  connect(): void {}
+}
+
 class SpyAudioContext implements AudioContextLike {
   currentTime = 0;
   state: AudioContextState = 'running';
+  resumeCalls = 0;
   destination: AudioNodeLike = { connect() {} };
   // A warm-analog voice stacks several oscillators; count `filters` (one low-pass
   // per voice) for a voice tally, and inspect `oscillators` for start/stop state.
@@ -2385,7 +2393,12 @@ class SpyAudioContext implements AudioContextLike {
     this.filters.push(filter);
     return filter;
   }
+  createWaveShaper(): WaveShaperNodeLike {
+    return new SpyWaveShaper();
+  }
   resume(): Promise<void> {
+    this.resumeCalls += 1;
+    this.state = 'running';
     return Promise.resolve();
   }
   close(): Promise<void> {
@@ -2394,7 +2407,7 @@ class SpyAudioContext implements AudioContextLike {
   }
 }
 
-describe('VisualizerEngine Preview Synth wiring (T25)', () => {
+describe('VisualizerEngine Tone Player wiring', () => {
   let engines: VisualizerEngine[] = [];
 
   // A single shared SpyAudioContext per engine, so a test can inspect the voices
@@ -2403,14 +2416,18 @@ describe('VisualizerEngine Preview Synth wiring (T25)', () => {
     const { factory, getInstance } = stubP5Factory();
     const container = document.createElement('div');
     const audio = new SpyAudioContext();
+    const audioOptions: AudioContextOptions[] = [];
     const engine = new VisualizerEngine(container, {
       createP5: factory,
       storage: new FakeStorage(),
-      createAudioContext: () => audio,
+      createAudioContext: (options) => {
+        audioOptions.push(options);
+        return audio;
+      },
       scenes,
     });
     engines.push(engine);
-    return { engine, stub: getInstance(), audio };
+    return { engine, stub: getInstance(), audio, audioOptions };
   }
 
   function keydown(code: string) {
@@ -2431,7 +2448,68 @@ describe('VisualizerEngine Preview Synth wiring (T25)', () => {
     expect(engine.soundEnabled).toBe(true);
   });
 
-  it('sounds a synth voice for a computer key when both Virtual Input and Sound are on', () => {
+  it('creates no AudioContext until a gesture or a note asks for sound', () => {
+    const { engine, audioOptions } = setUpEngine();
+    engine.setVirtualInputEnabled(true);
+
+    expect(audioOptions).toHaveLength(0);
+  });
+
+  it('creates the AudioContext at latencyHint 0 on the first Virtual Input note when no gesture turned sound on', () => {
+    const { engine, audioOptions } = setUpEngine();
+    engine.setVirtualInputEnabled(true);
+
+    keydown('KeyA');
+
+    expect(audioOptions).toEqual([{ latencyHint: 0 }]);
+  });
+
+  it('creates and resumes the AudioContext on the gesture that turns sound on, before any note', () => {
+    const { engine, audio, audioOptions } = setUpEngine();
+    engine.setSoundEnabled(false);
+    audio.state = 'suspended';
+
+    engine.setSoundEnabled(true);
+
+    expect(audioOptions).toEqual([{ latencyHint: 0 }]);
+    expect(audio.resumeCalls).toBe(1);
+    expect(audio.oscillators).toHaveLength(0);
+  });
+
+  it('sounds a computer key before dispatching it, so the voice exists when the Scene hears the note', () => {
+    const scene = new FakeScene('a', 'Scene A');
+    const { engine, audio } = setUpEngine([scene]);
+    engine.setVirtualInputEnabled(true);
+    const voicesAtNoteOn: number[] = [];
+    const soundingAtNoteOff: number[] = [];
+    scene.onNoteOn.mockImplementation(() => voicesAtNoteOn.push(audio.filters.length));
+    scene.onNoteOff.mockImplementation(() =>
+      soundingAtNoteOff.push(audio.oscillators.filter((o) => !o.stopped).length),
+    );
+
+    keydown('KeyA');
+    keyup('KeyA');
+
+    expect(voicesAtNoteOn).toEqual([1]);
+    expect(soundingAtNoteOff).toEqual([0]); // already released when the Scene hears the note-off
+  });
+
+  it('sounds a Piano Preview click before dispatching it', () => {
+    const scene = new FakeScene('a', 'Scene A');
+    const { engine, stub, audio } = setUpEngine([scene]);
+    engine.setVirtualInputEnabled(true);
+    engine.setKeyboardBand('piano');
+    const voicesAtNoteOn: number[] = [];
+    scene.onNoteOn.mockImplementation(() => voicesAtNoteOn.push(audio.filters.length));
+
+    stub.mouseX = 5;
+    stub.mouseY = engine.visualizationHeight + engine.chromaKeyHeight - 5;
+    stub.mousePressed?.();
+
+    expect(voicesAtNoteOn).toEqual([1]);
+  });
+
+  it('sounds a voice for a computer key when both Virtual Input and Sound are on', () => {
     const { engine, audio } = setUpEngine();
     engine.setVirtualInputEnabled(true);
 
@@ -2441,7 +2519,7 @@ describe('VisualizerEngine Preview Synth wiring (T25)', () => {
     expect(audio.oscillators.every((o) => o.started)).toBe(true);
   });
 
-  it('sounds a synth voice for a Piano Preview click', () => {
+  it('sounds a voice for a Piano Preview click', () => {
     const { engine, stub, audio } = setUpEngine();
     engine.setVirtualInputEnabled(true);
     engine.setKeyboardBand('piano');
@@ -2454,7 +2532,7 @@ describe('VisualizerEngine Preview Synth wiring (T25)', () => {
     expect(audio.oscillators.every((o) => o.started)).toBe(true);
   });
 
-  it('glissandos the synth voice on drag: releases the old voice and sounds a new one', () => {
+  it('glissandos the voice on drag: releases the old voice and sounds a new one', () => {
     const { engine, stub, audio } = setUpEngine();
     engine.setVirtualInputEnabled(true);
     engine.setKeyboardBand('piano');
