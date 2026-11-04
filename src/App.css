@@ -282,6 +282,10 @@
   margin-top: 6px;
 }
 
+.sound-strip-tone {
+  margin-top: 8px;
+}
+
 .device-card-notice,
 .device-toast {
   font-size: 12px;

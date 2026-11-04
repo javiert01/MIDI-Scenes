@@ -7,6 +7,7 @@ function state(overrides: Partial<SoundState> = {}): SoundState {
     deviceSoundEnabled: false,
     audioSuspended: false,
     outputLatencyMs: null,
+    toneId: 'warm-analog',
     ...overrides,
   };
 }
@@ -55,6 +56,27 @@ describe('describeSoundStrip', () => {
     expect(
       describeSoundStrip(state({ soundEnabled: false, outputLatencyMs: 120 })).latencyHint,
     ).toBeNull();
+  });
+});
+
+describe('the Tone dropdown', () => {
+  it('shows whenever sound is not Off, on the selected Tone', () => {
+    expect(describeSoundStrip(state()).tonePicker?.selected).toBe('warm-analog');
+    expect(
+      describeSoundStrip(state({ deviceSoundEnabled: true, toneId: 'accordion' })).tonePicker
+        ?.selected,
+    ).toBe('accordion');
+  });
+
+  it('hides while sound is Off', () => {
+    expect(describeSoundStrip(state({ soundEnabled: false })).tonePicker).toBeNull();
+  });
+
+  it('lists Warm Analog first, then each Genre as a group: only Cumbia, with the Accordion, for now', () => {
+    expect(describeSoundStrip(state()).tonePicker?.menu).toEqual({
+      first: { id: 'warm-analog', name: 'Warm Analog' },
+      groups: [{ genre: 'Cumbia', tones: [{ id: 'accordion', name: 'Accordion' }] }],
+    });
   });
 });
 

@@ -1,15 +1,22 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import type {
-  AudioContextLike,
-  AudioNodeLike,
-  AudioParamLike,
-  BiquadFilterNodeLike,
-  GainNodeLike,
-  OscillatorNodeLike,
-  WaveShaperNodeLike,
+import {
+  type AudioBufferLike,
+  type AudioBufferSourceNodeLike,
+  type AudioContextLike,
+  type AudioNodeLike,
+  type AudioParamLike,
+  type BiquadFilterNodeLike,
+  type GainNodeLike,
+  type OscillatorNodeLike,
+  type StereoPannerNodeLike,
+  type WaveShaperNodeLike,
+  dbToGain,
 } from '@/engine/audio';
 import { TonePlayer } from '@/engine/tonePlayer';
+import { createSampledTone } from '@/engine/sampledTone';
 import { WARM_ANALOG, midiToFrequency } from '@/engine/warmAnalog';
+import { toneById } from '@/tones/catalogue';
+import type { ToneRegion } from '@/tones/toneAssets';
 
 class FakeAudioParam implements AudioParamLike {
   value: number;
@@ -64,6 +71,47 @@ class FakeWaveShaper extends FakeNode implements WaveShaperNodeLike {
   oversample: OverSampleType = '4x';
 }
 
+class FakeAudioBuffer implements AudioBufferLike {
+  constructor(
+    readonly file: string,
+    readonly duration: number,
+  ) {}
+}
+
+/**
+ * A param as a real context shows it: a value scheduled at the current time
+ * reaches `value` only once the next block renders, which never happens here.
+ */
+class RenderedAudioParam extends FakeAudioParam {
+  scheduled: number | undefined;
+  setValueAtTime(value: number, _time: number): void {
+    this.scheduled = value;
+  }
+}
+
+class FakeBufferSource extends FakeNode implements AudioBufferSourceNodeLike {
+  buffer: AudioBufferLike | null = null;
+  playbackRate = new RenderedAudioParam(1);
+  loop = false;
+  loopStart = 0;
+  loopEnd = 0;
+  startTime: number | undefined;
+  stopTime: number | undefined;
+  start(when?: number): void {
+    this.startTime = when;
+  }
+  stop(when?: number): void {
+    this.stopTime = when;
+  }
+  get file(): string | undefined {
+    return (this.buffer as FakeAudioBuffer | null)?.file;
+  }
+}
+
+class FakeStereoPanner extends FakeNode implements StereoPannerNodeLike {
+  pan = new FakeAudioParam(0);
+}
+
 class FakeAudioContext implements AudioContextLike {
   currentTime = 0;
   state: AudioContextState = 'running';
@@ -73,6 +121,8 @@ class FakeAudioContext implements AudioContextLike {
   gains: FakeGain[] = [];
   filters: FakeBiquadFilter[] = [];
   shapers: FakeWaveShaper[] = [];
+  bufferSources: FakeBufferSource[] = [];
+  decoded: ArrayBuffer[] = [];
   resumeCalls = 0;
   closeCalls = 0;
   createOscillator(): OscillatorNodeLike {
@@ -94,6 +144,18 @@ class FakeAudioContext implements AudioContextLike {
     const shaper = new FakeWaveShaper();
     this.shapers.push(shaper);
     return shaper;
+  }
+  createBufferSource(): AudioBufferSourceNodeLike {
+    const source = new FakeBufferSource();
+    this.bufferSources.push(source);
+    return source;
+  }
+  createStereoPanner(): StereoPannerNodeLike {
+    return new FakeStereoPanner();
+  }
+  decodeAudioData(data: ArrayBuffer): Promise<AudioBufferLike> {
+    this.decoded.push(data);
+    return Promise.resolve(new FakeAudioBuffer('decoded', 1));
   }
   resume(): Promise<void> {
     this.resumeCalls += 1;
@@ -539,6 +601,327 @@ describe('TonePlayer', () => {
         expect(ceilingOutput(100)).toBeLessThanOrEqual(MINUS_0_3_DBFS);
       });
     });
+  });
+});
+
+describe('TonePlayer with a sampled Tone', () => {
+  const ACCORDION = toneById('accordion'); // -17 dB, attack 30 ms, release 0.13 s, tracking 0.4
+
+  const region = (over: Partial<ToneRegion> = {}): ToneRegion => ({
+    file: 'C4.mp3',
+    keycentre: 60,
+    keyLo: 36,
+    keyHi: 83,
+    velLo: 1,
+    velHi: 127,
+    tune: 0,
+    gainDb: 0,
+    pan: 0,
+    loop: null,
+    release: false,
+    ...over,
+  });
+
+  let ctx: FakeAudioContext;
+  let player: TonePlayer;
+
+  /** Selects a sampled Accordion built from `regions`, each file decoded `durations[file]` long (2 s by default). */
+  function selectSampled(regions: ToneRegion[], durations: Record<string, number> = {}) {
+    const buffers = new Map(
+      regions.map((r) => [r.file, new FakeAudioBuffer(r.file, durations[r.file] ?? 2)]),
+    );
+    const tone = createSampledTone(ACCORDION, { regions, buffers });
+    player.setTone(tone);
+    return tone;
+  }
+
+  const sourcesOf = (file: string) => ctx.bufferSources.filter((s) => s.file === file);
+  const isPlaying = (s: FakeBufferSource) =>
+    s.startTime !== undefined && (s.stopTime === undefined || s.stopTime > ctx.currentTime);
+  /**
+   * The nodes a sustaining source feeds, in order: its panner, its region's level,
+   * the voice's envelope, then the voice's own copy of its Tone's fixed gain.
+   */
+  const chainOf = (s: FakeBufferSource) => {
+    const [, panner, level, envelope, fixedGain] = chainFrom(s);
+    return {
+      panner: panner as FakeStereoPanner,
+      level: level as FakeGain,
+      envelope: envelope as FakeGain,
+      fixedGain: fixedGain as FakeGain,
+    };
+  };
+  /** A release sample skips the envelope: panner, level, then the voice's fixed gain. */
+  const tailChainOf = (s: FakeBufferSource) => {
+    const [, panner, level, fixedGain] = chainFrom(s);
+    return { panner: panner as FakeStereoPanner, level: level as FakeGain, fixedGain };
+  };
+  const fixedGainOf = (s: FakeBufferSource) => chainOf(s).fixedGain;
+
+  beforeEach(() => {
+    ctx = new FakeAudioContext();
+    player = new TonePlayer({ tone: WARM_ANALOG, createAudioContext: () => ctx });
+  });
+
+  describe('voices', () => {
+    it('play one buffer source per matching region, from the start, at once', () => {
+      selectSampled([
+        region({ file: 'left.mp3', pan: -1 }),
+        region({ file: 'right.mp3', pan: 1 }),
+        region({ file: 'high.mp3', keyLo: 84, keyHi: 127 }),
+      ]);
+      ctx.currentTime = 1;
+
+      player.noteOn('virtual', 60, 100);
+
+      expect(ctx.bufferSources.map((s) => s.file)).toEqual(['left.mp3', 'right.mp3']);
+      for (const s of ctx.bufferSources) expect(s.startTime).toBe(1);
+      expect(ctx.oscillators).toHaveLength(0); // no Warm Analog under it
+    });
+
+    it('take their playback rate from the keycentre and the region tune', () => {
+      selectSampled([region({ keycentre: 60, tune: -34 })]);
+
+      player.noteOn('virtual', 60, 100);
+      player.noteOn('virtual', 67, 100);
+      player.noteOn('virtual', 48, 100);
+
+      const [atCentre, fifthUp, octaveDown] = ctx.bufferSources;
+      expect(atCentre.playbackRate.scheduled).toBeCloseTo(2 ** (-34 / 1200), 6);
+      expect(fifthUp.playbackRate.scheduled).toBeCloseTo(2 ** ((700 - 34) / 1200), 6);
+      expect(octaveDown.playbackRate.scheduled).toBeCloseTo(2 ** ((-1200 - 34) / 1200), 6);
+    });
+
+    it("loop between the region's loop points, and play once where it has none", () => {
+      selectSampled([
+        region({ file: 'looped.mp3', keyHi: 60, loop: { start: 0.8, end: 1.4 } }),
+        region({ file: 'once.mp3', keyLo: 61 }),
+      ]);
+
+      player.noteOn('virtual', 60, 100);
+      player.noteOn('virtual', 62, 100);
+
+      const [looped] = sourcesOf('looped.mp3');
+      expect(looped).toMatchObject({ loop: true, loopStart: 0.8, loopEnd: 1.4 });
+      expect(sourcesOf('once.mp3')[0].loop).toBe(false);
+    });
+
+    it("pan by the region's pan, and scale by its gainDb once the attack is done", () => {
+      selectSampled([region({ gainDb: -6, pan: -0.5 })]);
+
+      player.noteOn('virtual', 60, 127);
+
+      const { panner, level, envelope } = chainOf(ctx.bufferSources[0]);
+      expect(panner.pan.value).toBe(-0.5);
+      expect(level.gain.value).toBeCloseTo(dbToGain(-6), 6);
+      expect(envelope.gain.ramps.at(-1)?.value).toBe(1);
+    });
+
+    it("start silent and ramp to full level over the Tone's 30 ms attack", () => {
+      selectSampled([region()]);
+      ctx.currentTime = 2;
+
+      player.noteOn('virtual', 60, 127);
+
+      const { envelope } = chainOf(ctx.bufferSources[0]);
+      expect(envelope.gain.value).toBe(0);
+      expect(envelope.gain.ramps).toEqual([{ value: 1, time: expect.closeTo(2.03, 6) }]);
+    });
+
+    it("sound through the Tone's fixed gain, -17 dB for the Accordion", () => {
+      selectSampled([region()]);
+
+      player.noteOn('virtual', 60, 100);
+
+      expect(fixedGainOf(ctx.bufferSources[0]).gain.value).toBeCloseTo(dbToGain(-17), 6);
+    });
+
+    it('let a held note go when its source presses it again where the new Tone has no sound', () => {
+      player.noteOn('virtual', 30, 100); // Warm Analog sounds everywhere
+      selectSampled([region({ keyLo: 36, keyHi: 83 })]);
+
+      player.noteOn('virtual', 30, 100);
+
+      expect(sounding(ctx)).toHaveLength(0);
+      expect(ctx.bufferSources).toHaveLength(0);
+    });
+
+    it('stay silent outside every region, taking no voice', () => {
+      selectSampled([region({ keyLo: 36, keyHi: 83 })]);
+
+      player.noteOn('virtual', 35, 100);
+      player.noteOn('virtual', 84, 100);
+      player.noteOff('virtual', 35);
+
+      expect(ctx.bufferSources).toHaveLength(0);
+      expect(ctx.oscillators).toHaveLength(0);
+    });
+  });
+
+  describe('velocity', () => {
+    it('picks the layer whose velocity range holds the note-on velocity', () => {
+      selectSampled([
+        region({ file: 'soft.mp3', velHi: 63 }),
+        region({ file: 'loud.mp3', velLo: 64 }),
+      ]);
+
+      player.noteOn('virtual', 60, 63);
+      player.noteOn('virtual', 62, 64);
+
+      expect(ctx.bufferSources.map((s) => s.file)).toEqual(['soft.mp3', 'loud.mp3']);
+    });
+
+    it("scales the level by 1 - t + t * (v/127)^2, with the Accordion's tracking t = 0.4", () => {
+      selectSampled([region()]);
+
+      const levelAt = (note: number, velocity: number) => {
+        player.noteOn('virtual', note, velocity);
+        return chainOf(ctx.bufferSources.at(-1)!).level.gain.value;
+      };
+
+      expect(levelAt(60, 127)).toBeCloseTo(1, 6);
+      expect(levelAt(61, 64)).toBeCloseTo(0.6 + 0.4 * (64 / 127) ** 2, 6);
+      expect(levelAt(62, 1)).toBeCloseTo(0.6 + 0.4 * (1 / 127) ** 2, 6);
+    });
+  });
+
+  describe('releasing', () => {
+    it("fades a released note over the Tone's 0.13 s release, then stops its sources", () => {
+      selectSampled([region({ loop: { start: 0.5, end: 1 } })]);
+      player.noteOn('virtual', 60, 100);
+      ctx.currentTime = 1;
+
+      player.noteOff('virtual', 60);
+
+      const [source] = ctx.bufferSources;
+      expect(source.stopTime).toBeCloseTo(1.13, 6);
+      expect(chainOf(source).envelope.gain.ramps.at(-1)).toEqual({
+        value: 0,
+        time: expect.closeTo(1.13, 6),
+      });
+    });
+
+    it('plays the matching release sample on release, once, at the note-on velocity layer and pitch', () => {
+      selectSampled([
+        region({ file: 'C4.mp3' }),
+        region({ file: 'C4-release.mp3', release: true, gainDb: -8, tune: 10 }),
+        region({ file: 'other-release.mp3', release: true, keyLo: 84, keyHi: 127 }),
+      ]);
+      player.noteOn('virtual', 62, 127);
+      expect(sourcesOf('C4-release.mp3')).toHaveLength(0); // nothing until the key comes up
+      ctx.currentTime = 1;
+
+      player.noteOff('virtual', 62);
+
+      const [tail] = sourcesOf('C4-release.mp3');
+      expect(tail.startTime).toBe(1);
+      expect(tail.loop).toBe(false);
+      expect(tail.playbackRate.scheduled).toBeCloseTo(2 ** (210 / 1200), 6);
+      const tailChain = tailChainOf(tail);
+      expect(tailChain.level.gain.value).toBeCloseTo(dbToGain(-8), 6); // v127: tracking leaves it whole
+      expect(tailChain.fixedGain).toBe(fixedGainOf(sourcesOf('C4.mp3')[0])); // through the voice's own gain
+      expect(sourcesOf('other-release.mp3')).toHaveLength(0);
+    });
+
+    it('counts a release sample as a release tail until it has played out', () => {
+      selectSampled([region(), region({ file: 'C4-release.mp3', release: true })], {
+        'C4-release.mp3': 1.5,
+      });
+      // Two octaves below the keycentre, the 1.5 s release sample plays at a quarter
+      // speed, so it lasts 6 s.
+      player.noteOn('virtual', 36, 100);
+      player.noteOff('virtual', 36);
+      ctx.currentTime = 3; // past the 0.13 s release, and past 1.5 s, but not past 6 s
+
+      for (let note = 40; note < 72; note += 1) player.noteOn('virtual', note, 100);
+
+      // The 33rd voice stole the release tail, the oldest, rather than a held note.
+      const [tail] = sourcesOf('C4-release.mp3');
+      expect(tail.stopTime).toBeCloseTo(3.02, 6);
+      const held = sourcesOf('C4.mp3').filter((s) => s.stopTime === undefined);
+      expect(held).toHaveLength(32);
+    });
+
+    it('stops a stolen voice, release sample and all, with the 20 ms fade', () => {
+      selectSampled([region(), region({ file: 'C4-release.mp3', release: true })]);
+      player.noteOn('virtual', 60, 100);
+      player.noteOff('virtual', 60);
+
+      player.silenceAll();
+
+      for (const s of ctx.bufferSources) expect(s.stopTime).toBeCloseTo(0.02, 6);
+    });
+  });
+
+  describe('switching Tones', () => {
+    it('sounds the new Tone from the next note, while a held note keeps its old Tone and gain', () => {
+      selectSampled([region()]);
+      player.noteOn('virtual', 60, 100);
+      const accordionVoice = ctx.bufferSources[0];
+
+      player.setTone(WARM_ANALOG);
+      player.noteOn('virtual', 64, 100);
+
+      expect(isPlaying(accordionVoice)).toBe(true);
+      expect(fixedGainOf(accordionVoice).gain.value).toBeCloseTo(dbToGain(-17), 6);
+      expect(ctx.bufferSources).toHaveLength(1);
+      expect(sounding(ctx)).toHaveLength(1); // the new note is Warm Analog
+      const warmFixedGain = chainFrom(voices(ctx)[0].filter)[2] as FakeGain;
+      expect(warmFixedGain.gain.value).toBe(1);
+
+      player.noteOff('virtual', 60);
+      expect(accordionVoice.stopTime).toBeCloseTo(0.13, 6); // released on its own Tone's terms
+    });
+
+    it('holds the old Tone only until its last voice ends, then only the selected one', () => {
+      selectSampled([region()]);
+      player.noteOn('virtual', 60, 100);
+      player.setTone(WARM_ANALOG);
+      expect(player.heldToneIds).toEqual(['warm-analog', 'accordion']);
+
+      player.noteOff('virtual', 60);
+      ctx.currentTime = 0.1; // still in its release
+      player.noteOn('virtual', 64, 100);
+      expect(player.heldToneIds).toEqual(['warm-analog', 'accordion']);
+
+      ctx.currentTime = 0.5; // the release is over
+      player.noteOn('virtual', 67, 100);
+      expect(player.heldToneIds).toEqual(['warm-analog']);
+    });
+
+    it('lets go of a Tone switched away from at once when none of its voices sound', () => {
+      selectSampled([region()]);
+
+      player.setTone(WARM_ANALOG);
+
+      expect(player.heldToneIds).toEqual(['warm-analog']);
+    });
+  });
+});
+
+describe('TonePlayer.decodeAudioData', () => {
+  it('decodes through the context, creating it without resuming it', async () => {
+    const ctx = new FakeAudioContext();
+    ctx.state = 'suspended';
+    const player = new TonePlayer({ tone: WARM_ANALOG, createAudioContext: () => ctx });
+    const data = new ArrayBuffer(8);
+
+    const buffer = await player.decodeAudioData(data);
+
+    expect(ctx.decoded).toEqual([data]);
+    expect(buffer.duration).toBe(1);
+    expect(ctx.resumeCalls).toBe(0);
+  });
+
+  it('rejects where Web Audio is unavailable', async () => {
+    const player = new TonePlayer({
+      tone: WARM_ANALOG,
+      createAudioContext: () => {
+        throw new Error('Web Audio API is unavailable');
+      },
+    });
+
+    await expect(player.decodeAudioData(new ArrayBuffer(8))).rejects.toThrow();
   });
 });
 
