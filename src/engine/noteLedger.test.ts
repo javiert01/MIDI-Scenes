@@ -95,7 +95,7 @@ describe('NoteLedger held', () => {
     const { held } = ledger;
     ledger.press('device', 60);
     ledger.press('pointer', 62);
-    expect([...held].sort()).toEqual([60, 62]);
+    expect([...held].sort((a, b) => a - b)).toEqual([60, 62]);
     ledger.release('device', 60);
     expect([...held]).toEqual([62]);
   });

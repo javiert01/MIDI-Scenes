@@ -53,14 +53,7 @@ export class NoteLedger {
     const bySource = this.holds.get(note);
     const count = bySource?.get(source) ?? 0;
     if (!bySource || count === 0) return 'unmatched';
-
-    if (count > 1) bySource.set(source, count - 1);
-    else bySource.delete(source);
-
-    if (bySource.size > 0) return 'remaining';
-    this.holds.delete(note);
-    this.heldNotes.delete(note);
-    return 'last';
+    return this.endHold(source, note, bySource, count);
   }
 
   /**
@@ -68,18 +61,34 @@ export class NoteLedger {
    * exactly as it would to that many separate releases.
    */
   releaseAll(source: NoteSource): Release[] {
-    const owed: Array<[number, number]> = [];
+    const owed: Array<[number, Map<NoteSource, number>, number]> = [];
     for (const [note, bySource] of this.holds) {
       const count = bySource.get(source);
-      if (count) owed.push([note, count]);
+      if (count) owed.push([note, bySource, count]);
     }
 
     const released: Release[] = [];
-    for (const [note, count] of owed) {
-      for (let i = 0; i < count; i += 1) {
-        released.push({ note, result: this.release(source, note) as Release['result'] });
+    for (const [note, bySource, count] of owed) {
+      for (let left = count; left > 0; left -= 1) {
+        released.push({ note, result: this.endHold(source, note, bySource, left) });
       }
     }
     return released;
+  }
+
+  /** Ends one of the `count` Holds `source` has on `note`, whose per-source counts are `bySource`. */
+  private endHold(
+    source: NoteSource,
+    note: number,
+    bySource: Map<NoteSource, number>,
+    count: number,
+  ): Release['result'] {
+    if (count > 1) bySource.set(source, count - 1);
+    else bySource.delete(source);
+
+    if (bySource.size > 0) return 'remaining';
+    this.holds.delete(note);
+    this.heldNotes.delete(note);
+    return 'last';
   }
 }

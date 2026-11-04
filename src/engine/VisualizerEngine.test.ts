@@ -2551,6 +2551,25 @@ describe('VisualizerEngine Preview Synth wiring (T25)', () => {
     expect(audio.oscillators[0].stopped).toBe(true);
   });
 
+  it('silences a note a key and a click both hold on window blur', () => {
+    const { engine, stub, audio } = setUpEngine();
+    engine.setVirtualInputEnabled(true);
+    engine.setKeyboardBand('piano');
+    const sounding = () => audio.oscillators.filter((o) => !o.stopped);
+
+    keydown('KeyZ');
+    keydown('KeyZ'); // down two octaves, so KeyA is C2: the leftmost Piano Preview key
+    keydown('KeyA');
+    stub.mouseX = 5;
+    stub.mouseY = engine.visualizationHeight + engine.chromaKeyHeight - 5;
+    stub.mousePressed?.();
+    expect(sounding()).not.toHaveLength(0);
+
+    window.dispatchEvent(new Event('blur'));
+
+    expect(sounding()).toHaveLength(0);
+  });
+
   it('releases a clicked voice on mouseup', () => {
     const { engine, stub, audio } = setUpEngine();
     engine.setVirtualInputEnabled(true);

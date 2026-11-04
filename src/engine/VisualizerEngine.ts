@@ -1085,6 +1085,13 @@ export class VisualizerEngine {
     if (this.soundingNotes.release(source, note) === 'last') this.synth.noteOff(note);
   }
 
+  /** Ends every sounding Hold `source` has, silencing each note no other source still sounds. */
+  private silenceSource(source: NoteSource): void {
+    for (const { note, result } of this.soundingNotes.releaseAll(source)) {
+      if (result === 'last') this.synth.noteOff(note);
+    }
+  }
+
   /** Resolves the note under the cursor on the Piano Preview, gated by the enable flag + preview visibility. */
   private handleCanvasPointer(): void {
     if (!this.virtualInputEnabledState || this.keyboardBandState !== 'piano') {
@@ -1121,9 +1128,7 @@ export class VisualizerEngine {
     // Window blur reaches only this path, never handleKeyUp, so the keyboard's
     // sounding Holds end here too. Releasing by source, rather than silencing the
     // whole synth, leaves any other source's voices sounding.
-    for (const { note, result } of this.soundingNotes.releaseAll('keyboard')) {
-      if (result === 'last') this.synth.noteOff(note);
-    }
+    this.silenceSource('keyboard');
     this.setMouseNote(null);
   }
 
