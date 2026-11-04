@@ -94,10 +94,35 @@ npm run lint     # lint + format check
 npm run build    # typecheck and build for production
 ```
 
+Sampled Tones' MP3s and `regions.json` files are built offline and committed, so
+neither `npm run build` nor a deploy needs ffmpeg or any sample download. To
+rebuild them from their pinned sources, install ffmpeg (`brew install ffmpeg`)
+and run:
+
+```bash
+npm run tones:build             # every sampled Tone
+npm run tones:build accordion   # just one
+```
+
+Raw downloads are cached in the gitignored `.cache/tone-sources/`. The recipes
+live in `scripts/tones/recipes/`, and the outputs in one folder per Tone under
+`src/tones/`.
+
 The app is a Vite + React + TypeScript project, with a framework-agnostic
 `VisualizerEngine` driving a single p5.js canvas. See [CONTEXT.md](CONTEXT.md)
 for the domain vocabulary (Scene, Overlay, Crystal, etc.) and
 [docs/adr/](docs/adr/) for the architectural decisions behind it.
+
+## Sound credits
+
+The sampled Tones are built from these redistributable sample sets. CC0 sets are
+credited as a courtesy.
+
+- **Accordion**: [FreePats Button Accordion HN](https://github.com/freepats/button-accordion-HN),
+  a Hohner accordion recorded by Jeff Stauffer, made into a sound bank by
+  michael02022 for the [FreePats project](https://freepats.zenvoid.org/).
+  [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/). Leading silence
+  trimmed and re-encoded as MP3.
 
 ## License
 
