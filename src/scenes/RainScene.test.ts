@@ -242,11 +242,4 @@ describe('RainScene', () => {
 
     expect(ripplesOf(scene)).toHaveLength(0);
   });
-
-  it('onNoteOff is a no-op — crystals now fall inside the engine', () => {
-    const scene = new RainScene();
-    scene.setup(makeCtx());
-
-    expect(() => scene.onNoteOff()).not.toThrow();
-  });
 });

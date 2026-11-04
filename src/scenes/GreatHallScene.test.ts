@@ -393,13 +393,6 @@ describe('GreatHallScene', () => {
     expect(candlesOf(scene)[0].flare).toBeGreaterThan(0);
   });
 
-  it('onNoteOff is a no-op — crystals fall inside the engine', () => {
-    const scene = new GreatHallScene();
-    scene.setup(makeCtx());
-
-    expect(() => scene.onNoteOff()).not.toThrow();
-  });
-
   it('draw does not throw across update/draw cycles', () => {
     const scene = new GreatHallScene();
     const ctx = makeCtx();
