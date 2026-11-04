@@ -107,6 +107,18 @@ _Avoid_: Device (a Virtual Input is never listed or selected), Virtual Device,
 Piano (the Piano Preview is a surface the Virtual Input is played *through*, not an
 instrument).
 
+**Hold**:
+One source keeping one note number down: the Device, the computer-keyboard surface,
+or the Piano Preview click surface. A note is held while any Hold on it remains: its
+first Hold spawns its Crystal and lights its key, and only its last release ends
+them, so one source letting go never cuts a note another still holds. A source can
+hold the same note twice (two computer keys landing on one note across an octave
+shift), and a release from a source with no Hold on that note takes nobody's Hold.
+What sounds keeps its own Holds, counting only the sources that sound, so a note can
+be held on screen while silent.
+_Avoid_: Press (a press is the event that starts a Hold), voice (a voice is what
+sounds a note), touch.
+
 **Preview Synth** _(being replaced by the Tone Player, ADR-0009)_:
 The engine-owned synthesizer that makes Virtual Input notes audible today, with a
 single warm-analog sound. The Tone Player replaces it, and its sound carries over as

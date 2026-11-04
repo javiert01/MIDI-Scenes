@@ -9,6 +9,7 @@ import { clampOctaveShift, noteForKey, octaveLabel, octaveShiftForKey } from './
 import type { MidiAccessLike, MidiFactory } from './midiTypes';
 import { defaultMidiFactory } from './webMidiAdapter';
 import { PreviewSynth, type AudioContextFactory } from './previewSynth';
+import { NoteLedger, type NoteSource, type ReleaseResult } from './noteLedger';
 
 /** Fixed velocity (0–127) every synthetic Virtual Input note carries; see ADR-0005. */
 const VIRTUAL_INPUT_RAW_VELOCITY = 100;
@@ -237,8 +238,13 @@ export class VisualizerEngine {
   // tracks `soundEnabled && virtualInputEnabled` via syncSynthEnabled().
   private soundEnabledState = DEFAULT_SOUND_ENABLED;
   private readonly synth: PreviewSynth;
+  // The Holds of the sources that sound: the synth has one voice per note shared
+  // by both Virtual Input surfaces, so a voice ends only on its note's last
+  // sounding Hold. Kept apart from `notes` because what sounds and what shows can
+  // differ (a Device's Holds light keys but never sound here).
+  private readonly soundingNotes = new NoteLedger();
   // Physical key code -> the exact note it triggered, so keyup releases that same
-  // note even after an octave shift, and so cleanup releases only virtual notes.
+  // note even after an octave shift.
   private readonly virtualHeldKeys = new Map<string, number>();
   // The note a held mouse press is currently sounding on the Piano Preview, if any.
   private virtualMouseNote: number | null = null;
@@ -251,14 +257,12 @@ export class VisualizerEngine {
   // Set when a Scene draws Crystals itself via ctx.drawCrystals(); tells
   // renderFrame to skip the engine's default top-of-Scene Crystal draw.
   private crystalsDrawnThisFrame = false;
-  // Notes currently down, independent of the Crystal pool, so the Piano
-  // Preview's held-key lighting survives Crystal pool recycling.
-  private readonly heldNotes = new Set<number>();
-  // How many sources are holding each note number (a Device and the Virtual
-  // Input can both press note 60 at once). Engine state and Scene callbacks fire
-  // only on the 0->1 and 1->0 transitions, so one source releasing a note never
-  // cuts it while another still holds it (see ADR-0005).
-  private readonly noteHolds = new Map<number, number>();
+  // Every source's Holds (a Device and the Virtual Input can both press note 60
+  // at once). Crystals react only to a note's first Hold and last release, so one
+  // source letting go never cuts a note another still holds (see ADR-0005). Its
+  // held set also lights the Piano Preview's keys, independent of the Crystal
+  // pool, so the lighting survives Crystal pool recycling.
+  private readonly notes = new NoteLedger();
 
   private readonly storage?: Storage;
   private settingsSaveCountState = 0;
@@ -266,9 +270,6 @@ export class VisualizerEngine {
   private midiAccess: MidiAccessLike | null = null;
   private midiStatusState: MidiStatus = 'connecting';
   private selectedDeviceId: string | null = null;
-  // How many note-ons the selected Device has outstanding per note number, so
-  // they can be released if it goes away mid-hold and its note-offs never come.
-  private readonly deviceHeldNotes = new Map<number, number>();
   // The user's remembered Device preference, by name: set on an explicit
   // selectDevice()/restore() call, consulted whenever Devices (re)connect. A
   // hot-unplug never clears this, so the preference survives the Device
@@ -852,7 +853,7 @@ export class VisualizerEngine {
     // Crystal columns are relative to the old width; drop them so none linger off-column.
     this.crystals.reset();
     // A note still held keeps its lit key and owes a release, so it restarts at its new column.
-    for (const note of this.heldNotes) this.crystals.noteOn(note, preset.width);
+    for (const note of this.notes.held) this.crystals.noteOn(note, preset.width);
     return true;
   }
 
@@ -965,10 +966,7 @@ export class VisualizerEngine {
 
   /** Ends every note the outgoing Device still holds, as its note-offs will never arrive. */
   private releaseDeviceNotes(): void {
-    for (const [note, holds] of this.deviceHeldNotes) {
-      for (let i = 0; i < holds; i += 1) this.dispatchNoteOff(this.makeNoteEvent(note, 0));
-    }
-    this.deviceHeldNotes.clear();
+    this.releaseSource('device');
   }
 
   // Leaves rememberedDeviceName untouched: an unplug is transient, and the
@@ -982,60 +980,52 @@ export class VisualizerEngine {
   private handleRawMessage(data: number[]): void {
     const parsed = parseNoteMessage(data);
     if (!parsed) return;
-    const { note } = parsed.event;
-    const holds = this.deviceHeldNotes.get(note) ?? 0;
-    if (parsed.type === 'noteon') {
-      this.deviceHeldNotes.set(note, holds + 1);
-      this.dispatchNoteOn(parsed.event);
-    } else if (holds > 0) {
-      if (holds > 1) this.deviceHeldNotes.set(note, holds - 1);
-      else this.deviceHeldNotes.delete(note);
-      this.dispatchNoteOff(parsed.event);
-    } else {
-      // A key pressed before this Device was wired: this Device holds nothing here
-      // to release, so it must not take the hold of a source that does.
-      this.announceNoteOff(parsed.event);
-    }
+    // A note-off for a key pressed before this Device was wired comes back from
+    // the ledger as unmatched, so it takes no other source's Hold.
+    if (parsed.type === 'noteon') this.dispatchNoteOn('device', parsed.event);
+    else this.dispatchNoteOff('device', parsed.event);
   }
 
   // The single note-dispatch core: real Device messages and the Virtual Input's
   // synthetic notes both flow through here, so every downstream reaction
   // (Crystals, held-key lighting, Scene callbacks, activity tick) is identical
-  // no matter which source a note came from.
-  private dispatchNoteOn(event: NoteEvent): void {
+  // no matter which source a note came from. The source only says whose Hold it
+  // is; NoteEvent carries no source tag (ADR-0005, ADR-0009).
+  private dispatchNoteOn(source: NoteSource, event: NoteEvent): void {
     const ctx = this.buildContext(this.p.millis() - this.sceneStartMillis, 0);
-    // The engine's Overlay state (Crystal + Piano Preview lighting) is keyed by
-    // note number, so only the first source to hold a note number drives it; a
-    // second source pressing the same note (e.g. Virtual Input over a held Device
-    // note) just adds a hold, and never respawns the Crystal. Scene callbacks and
-    // the activity tick stay per-event, source-independent.
-    const holds = (this.noteHolds.get(event.note) ?? 0) + 1;
-    this.noteHolds.set(event.note, holds);
-    if (holds === 1) {
+    // Only a note's first Hold spawns its Crystal; a second source pressing the
+    // same note (e.g. Virtual Input over a held Device note) never respawns it.
+    // Scene callbacks and the activity tick stay per-event.
+    if (this.notes.press(source, event.note) === 'first') {
       this.crystals.noteOn(event.note, this.width);
-      this.heldNotes.add(event.note);
     }
     this.activeScene?.onNoteOn(event, ctx);
     this.noteActivityTick += 1;
     this.notify();
   }
 
-  private dispatchNoteOff(event: NoteEvent): void {
-    // Mirror of dispatchNoteOn: only the last source releasing a note number cuts
-    // the engine's Overlay state, so one source releasing never darkens a note
-    // another still holds (see ADR-0005).
-    const holds = this.noteHolds.get(event.note) ?? 0;
-    if (holds > 1) {
-      this.noteHolds.set(event.note, holds - 1);
-    } else {
-      this.noteHolds.delete(event.note);
-      this.crystals.noteOff(event.note);
-      this.heldNotes.delete(event.note);
+  private dispatchNoteOff(source: NoteSource, event: NoteEvent): void {
+    this.reactToRelease(event, this.notes.release(source, event.note));
+  }
+
+  /** Ends every Hold `source` has, reacting to each as if its note-off had arrived. */
+  private releaseSource(source: NoteSource): void {
+    for (const { note, result } of this.notes.releaseAll(source)) {
+      this.reactToRelease(this.makeNoteEvent(note, 0), result);
     }
+  }
+
+  /**
+   * Only a note's last release cuts its Crystal, so one source letting go never
+   * darkens a note another still holds. Every release, unmatched included, still
+   * reaches the Scene and the activity tick.
+   */
+  private reactToRelease(event: NoteEvent, result: ReleaseResult): void {
+    if (result === 'last') this.crystals.noteOff(event.note);
     this.announceNoteOff(event);
   }
 
-  /** The per-event half of a note-off, which an unmatched note-off still gets: the Scene and activity tick. */
+  /** The per-event half of a note-off: the Scene and activity tick. */
   private announceNoteOff(event: NoteEvent): void {
     const ctx = this.buildContext(this.p.millis() - this.sceneStartMillis, 0);
     this.activeScene?.onNoteOff(event, ctx);
@@ -1068,9 +1058,9 @@ export class VisualizerEngine {
     const note = noteForKey(event.code, this.virtualOctaveShift);
     if (note === null) return;
     this.virtualHeldKeys.set(event.code, note);
-    this.dispatchNoteOn(this.makeNoteEvent(note, VIRTUAL_INPUT_RAW_VELOCITY));
+    this.dispatchNoteOn('keyboard', this.makeNoteEvent(note, VIRTUAL_INPUT_RAW_VELOCITY));
     // Preview Synth hooked at the surface, alongside dispatch — not in the core (ADR-0007).
-    this.synth.noteOn(note);
+    this.soundNoteOn('keyboard', note);
     event.preventDefault();
   }
 
@@ -1080,15 +1070,19 @@ export class VisualizerEngine {
     const note = this.virtualHeldKeys.get(event.code);
     if (note === undefined) return;
     this.virtualHeldKeys.delete(event.code);
-    this.dispatchNoteOff(this.makeNoteEvent(note, 0));
-    this.releaseSynthNote(note);
+    this.dispatchNoteOff('keyboard', this.makeNoteEvent(note, 0));
+    this.soundNoteOff('keyboard', note);
   }
 
-  /** Silences `note` once neither Virtual Input surface holds it: the synth has one voice per note, shared by both. */
-  private releaseSynthNote(note: number): void {
-    const stillHeld =
-      this.virtualMouseNote === note || [...this.virtualHeldKeys.values()].includes(note);
-    if (!stillHeld) this.synth.noteOff(note);
+  /** Sounds `note` for a Virtual Input surface. Every press retriggers the note's one voice. */
+  private soundNoteOn(source: NoteSource, note: number): void {
+    this.soundingNotes.press(source, note);
+    this.synth.noteOn(note);
+  }
+
+  /** Silences `note` only on its last sounding Hold, so the other surface's Hold keeps it sounding. */
+  private soundNoteOff(source: NoteSource, note: number): void {
+    if (this.soundingNotes.release(source, note) === 'last') this.synth.noteOff(note);
   }
 
   /** Resolves the note under the cursor on the Piano Preview, gated by the enable flag + preview visibility. */
@@ -1111,25 +1105,26 @@ export class VisualizerEngine {
     const previous = this.virtualMouseNote;
     this.virtualMouseNote = note;
     if (previous !== null) {
-      this.dispatchNoteOff(this.makeNoteEvent(previous, 0));
-      this.releaseSynthNote(previous);
+      this.dispatchNoteOff('pointer', this.makeNoteEvent(previous, 0));
+      this.soundNoteOff('pointer', previous);
     }
     if (note !== null) {
-      this.dispatchNoteOn(this.makeNoteEvent(note, VIRTUAL_INPUT_RAW_VELOCITY));
-      this.synth.noteOn(note);
+      this.dispatchNoteOn('pointer', this.makeNoteEvent(note, VIRTUAL_INPUT_RAW_VELOCITY));
+      this.soundNoteOn('pointer', note);
     }
   }
 
   /** Releases every Virtual-Input-originated note (keyboard + mouse), leaving Device notes untouched. */
   private releaseVirtualNotes(): void {
-    for (const note of this.virtualHeldKeys.values()) {
-      this.dispatchNoteOff(this.makeNoteEvent(note, 0));
-    }
     this.virtualHeldKeys.clear();
+    this.releaseSource('keyboard');
+    // Window blur reaches only this path, never handleKeyUp, so the keyboard's
+    // sounding Holds end here too. Releasing by source, rather than silencing the
+    // whole synth, leaves any other source's voices sounding.
+    for (const { note, result } of this.soundingNotes.releaseAll('keyboard')) {
+      if (result === 'last') this.synth.noteOff(note);
+    }
     this.setMouseNote(null);
-    // The key-up loop above bypasses handleKeyUp, so release the synth's voices
-    // directly here — covering window blur, which reaches only this path.
-    this.synth.releaseAll();
   }
 
   private buildContext(elapsed: number, deltaTime: number): SceneContext {
@@ -1201,7 +1196,7 @@ export class VisualizerEngine {
   /** Draws the Piano Preview Overlay filling the keyboard band, unless another band is selected. */
   private renderPianoPreview(): void {
     if (this.keyboardBandState !== 'piano') return;
-    drawPianoPreview(this.p, this.pianoBand, this.heldNotes, {
+    drawPianoPreview(this.p, this.pianoBand, this.notes.held, {
       left: hexToRgb(this.crystalsLeftColorState, CRYSTAL_COLORS.left),
       right: hexToRgb(this.crystalsRightColorState, CRYSTAL_COLORS.right),
     });
