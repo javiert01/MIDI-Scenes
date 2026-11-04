@@ -1171,6 +1171,7 @@ describe('VisualizerEngine session persistence (T11)', () => {
       crystalsRightColor: '#ff5a14',
       virtualInputEnabled: false,
       soundEnabled: true,
+      deviceSoundEnabled: false,
     });
   });
 
@@ -2373,6 +2374,7 @@ class SpyWaveShaper implements WaveShaperNodeLike {
 class SpyAudioContext implements AudioContextLike {
   currentTime = 0;
   state: AudioContextState = 'running';
+  outputLatency?: number;
   resumeCalls = 0;
   destination: AudioNodeLike = { connect() {} };
   // A warm-analog voice stacks several oscillators; count `filters` (one low-pass
@@ -2466,10 +2468,10 @@ describe('VisualizerEngine Tone Player wiring', () => {
 
   it('creates and resumes the AudioContext on the gesture that turns sound on, before any note', () => {
     const { engine, audio, audioOptions } = setUpEngine();
-    engine.setSoundEnabled(false);
+    engine.setSoundGates({ soundEnabled: false, deviceSoundEnabled: false });
     audio.state = 'suspended';
 
-    engine.setSoundEnabled(true);
+    engine.setSoundGates({ soundEnabled: true, deviceSoundEnabled: false });
 
     expect(audioOptions).toEqual([{ latencyHint: 0 }]);
     expect(audio.resumeCalls).toBe(1);
@@ -2578,7 +2580,7 @@ describe('VisualizerEngine Tone Player wiring', () => {
   it('stays silent when Sound is off, even with the Virtual Input on (gating: both required)', () => {
     const { engine, audio } = setUpEngine();
     engine.setVirtualInputEnabled(true);
-    engine.setSoundEnabled(false);
+    engine.setSoundGates({ soundEnabled: false, deviceSoundEnabled: false });
 
     keydown('KeyA');
 
@@ -2591,7 +2593,7 @@ describe('VisualizerEngine Tone Player wiring', () => {
     keydown('KeyA');
     expect(audio.oscillators[0].stopped).toBe(false);
 
-    engine.setSoundEnabled(false);
+    engine.setSoundGates({ soundEnabled: false, deviceSoundEnabled: false });
 
     expect(audio.oscillators[0].stopped).toBe(true);
   });
@@ -2599,10 +2601,10 @@ describe('VisualizerEngine Tone Player wiring', () => {
   it('turning Sound on affects only subsequent notes, not a note held while it was off', () => {
     const { engine, audio } = setUpEngine();
     engine.setVirtualInputEnabled(true);
-    engine.setSoundEnabled(false);
+    engine.setSoundGates({ soundEnabled: false, deviceSoundEnabled: false });
     keydown('KeyA'); // held while silent — no voice
 
-    engine.setSoundEnabled(true);
+    engine.setSoundGates({ soundEnabled: true, deviceSoundEnabled: false });
     expect(audio.oscillators).toHaveLength(0); // the held key does not retroactively sound
 
     keydown('KeyS'); // a subsequent note does
@@ -2720,7 +2722,7 @@ describe('VisualizerEngine Tone Player wiring', () => {
 
   it('persists soundEnabled across serialize()/restore()', () => {
     const { engine: source } = setUpEngine();
-    source.setSoundEnabled(false);
+    source.setSoundGates({ soundEnabled: false, deviceSoundEnabled: false });
     const snapshot = source.serialize();
     expect(snapshot.soundEnabled).toBe(false);
 
@@ -2754,6 +2756,327 @@ describe('VisualizerEngine Tone Player wiring', () => {
     engines.push(engine);
 
     expect(engine.soundEnabled).toBe(true);
+  });
+});
+
+// Device sound (issue #56, ADR-0009): a Device's notes sound through the Tone
+// Player only while the user opts in and audio is running, before dispatch.
+describe('VisualizerEngine Device sound', () => {
+  const device: MidiInputLike = { id: 'dev-a', name: 'Keyboard A' };
+  const otherDevice: MidiInputLike = { id: 'dev-b', name: 'Keyboard B' };
+  let engines: VisualizerEngine[] = [];
+
+  async function setUpEngine(
+    options: { storage?: FakeStorage; audio?: SpyAudioContext; scenes?: Scene[] } = {},
+  ) {
+    const { factory, getInstance } = stubP5Factory();
+    const midi = new FakeMidiAccess([device, otherDevice]);
+    const audio = options.audio ?? new SpyAudioContext();
+    const audioOptions: AudioContextOptions[] = [];
+    const engine = new VisualizerEngine(document.createElement('div'), {
+      createP5: factory,
+      createMidi: fakeMidiFactory(midi),
+      storage: options.storage ?? new FakeStorage(),
+      createAudioContext: (contextOptions) => {
+        audioOptions.push(contextOptions);
+        return audio;
+      },
+      scenes: options.scenes ?? [],
+    });
+    engines.push(engine);
+    await flushMicrotasks();
+    return { engine, stub: getInstance(), midi, audio, audioOptions };
+  }
+
+  /** Storage holding a saved setup, as a reload finds it. */
+  function savedStorage(fields: Record<string, unknown>): FakeStorage {
+    const storage = new FakeStorage();
+    storage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        version: 1,
+        activeSceneId: null,
+        paramValues: {},
+        deviceName: null,
+        resolutionPreset: '1600x800',
+        ...fields,
+      }),
+    );
+    return storage;
+  }
+
+  const soundingVoices = (audio: SpyAudioContext) =>
+    audio.oscillators.filter((o) => o.started && !o.stopped);
+
+  function keydown(code: string) {
+    window.dispatchEvent(new KeyboardEvent('keydown', { code, bubbles: true, cancelable: true }));
+  }
+
+  function keyup(code: string) {
+    window.dispatchEvent(new KeyboardEvent('keyup', { code, bubbles: true }));
+  }
+
+  afterEach(() => {
+    for (const engine of engines) engine.destroy();
+    engines = [];
+  });
+
+  it('defaults Device sound to off, so a Device note is seen but not heard', async () => {
+    const scene = new FakeScene('a', 'Scene A');
+    const { engine, midi, audio } = await setUpEngine({ scenes: [scene] });
+
+    midi.emit('dev-a', [0x90, 60, 100]);
+
+    expect(engine.deviceSoundEnabled).toBe(false);
+    expect(audio.oscillators).toHaveLength(0);
+    expect(scene.onNoteOn).toHaveBeenCalledTimes(1);
+  });
+
+  it('sounds a Device note before dispatching it while Device sound is on', async () => {
+    const scene = new FakeScene('a', 'Scene A');
+    const { engine, midi, audio } = await setUpEngine({ scenes: [scene] });
+    engine.setSoundGates({ soundEnabled: true, deviceSoundEnabled: true });
+    const voicesAtNoteOn: number[] = [];
+    const soundingAtNoteOff: number[] = [];
+    scene.onNoteOn.mockImplementation(() => voicesAtNoteOn.push(audio.filters.length));
+    scene.onNoteOff.mockImplementation(() => soundingAtNoteOff.push(soundingVoices(audio).length));
+
+    midi.emit('dev-a', [0x90, 60, 100]);
+    midi.emit('dev-a', [0x80, 60, 0]);
+
+    expect(voicesAtNoteOn).toEqual([1]);
+    expect(soundingAtNoteOff).toEqual([0]);
+  });
+
+  it('turning Device sound on is the gesture that creates and resumes audio', async () => {
+    const audio = new SpyAudioContext();
+    audio.state = 'suspended';
+    const { engine, audioOptions } = await setUpEngine({ audio });
+
+    engine.setSoundGates({ soundEnabled: true, deviceSoundEnabled: true });
+
+    expect(audioOptions).toEqual([{ latencyHint: 0 }]);
+    expect(audio.resumeCalls).toBe(1);
+  });
+
+  it('sounds a note held by both a Device and the Virtual Input once, until both let go', async () => {
+    const { engine, midi, audio } = await setUpEngine();
+    engine.setSoundGates({ soundEnabled: true, deviceSoundEnabled: true });
+    engine.setVirtualInputEnabled(true);
+
+    midi.emit('dev-a', [0x90, 60, 100]); // C4
+    keydown('KeyA'); // C4 at the default octave
+    expect(audio.filters).toHaveLength(1); // one voice
+
+    keyup('KeyA');
+    expect(soundingVoices(audio)).not.toHaveLength(0);
+
+    midi.emit('dev-a', [0x80, 60, 0]);
+    expect(soundingVoices(audio)).toHaveLength(0);
+  });
+
+  it('going from All notes to Computer releases the Device voices and keeps the Virtual Input sounding', async () => {
+    const { engine, midi, audio } = await setUpEngine();
+    engine.setSoundGates({ soundEnabled: true, deviceSoundEnabled: true });
+    engine.setVirtualInputEnabled(true);
+    midi.emit('dev-a', [0x90, 50, 100]);
+    keydown('KeyA');
+
+    engine.setSoundGates({ soundEnabled: true, deviceSoundEnabled: false });
+
+    expect(audio.filters).toHaveLength(2);
+    expect(soundingVoices(audio).length).toBeGreaterThan(0);
+    keyup('KeyA');
+    expect(soundingVoices(audio)).toHaveLength(0);
+
+    midi.emit('dev-a', [0x90, 52, 100]);
+    expect(audio.filters).toHaveLength(2); // no new Device voice
+  });
+
+  it('going to Off silences every voice', async () => {
+    const { engine, midi, audio } = await setUpEngine();
+    engine.setSoundGates({ soundEnabled: true, deviceSoundEnabled: true });
+    engine.setVirtualInputEnabled(true);
+    midi.emit('dev-a', [0x90, 50, 100]);
+    keydown('KeyA');
+
+    engine.setSoundGates({ soundEnabled: false, deviceSoundEnabled: false });
+
+    expect(soundingVoices(audio)).toHaveLength(0);
+  });
+
+  it('releases Device voices when the Device is unplugged', async () => {
+    const { engine, midi, audio } = await setUpEngine();
+    engine.setSoundGates({ soundEnabled: true, deviceSoundEnabled: true });
+    midi.emit('dev-a', [0x90, 60, 100]);
+
+    midi.setInputs([otherDevice]);
+
+    expect(soundingVoices(audio)).toHaveLength(0);
+  });
+
+  it('releases Device voices when switching to another Device', async () => {
+    const { engine, midi, audio } = await setUpEngine();
+    engine.setSoundGates({ soundEnabled: true, deviceSoundEnabled: true });
+    midi.emit('dev-a', [0x90, 60, 100]);
+
+    engine.selectDevice('dev-b');
+
+    expect(soundingVoices(audio)).toHaveLength(0);
+  });
+
+  it('leaves Device voices sounding on focus loss, which releases only the Virtual Input', async () => {
+    const { engine, midi, audio } = await setUpEngine();
+    engine.setSoundGates({ soundEnabled: true, deviceSoundEnabled: true });
+    engine.setVirtualInputEnabled(true);
+    midi.emit('dev-a', [0x90, 50, 100]);
+    keydown('KeyA');
+
+    window.dispatchEvent(new Event('blur'));
+
+    expect(audio.filters).toHaveLength(2);
+    expect(soundingVoices(audio).length).toBeGreaterThan(0);
+    midi.emit('dev-a', [0x80, 50, 0]);
+    expect(soundingVoices(audio)).toHaveLength(0);
+  });
+
+  it('persists deviceSoundEnabled across serialize()/restore()', async () => {
+    const { engine: source } = await setUpEngine();
+    source.setSoundGates({ soundEnabled: true, deviceSoundEnabled: true });
+    const snapshot = source.serialize();
+    expect(snapshot.deviceSoundEnabled).toBe(true);
+    expect(snapshot.version).toBe(1);
+
+    const { engine: target } = await setUpEngine();
+    target.restore(snapshot);
+
+    expect(target.deviceSoundEnabled).toBe(true);
+    expect(target.soundEnabled).toBe(true);
+  });
+
+  it('defaults Device sound to off when a saved setup lacks the field', async () => {
+    const { engine } = await setUpEngine({ storage: savedStorage({ soundEnabled: true }) });
+
+    expect(engine.deviceSoundEnabled).toBe(false);
+  });
+
+  it('restoring Device sound off releases the Device voices', async () => {
+    const { engine, midi, audio } = await setUpEngine();
+    engine.setSoundGates({ soundEnabled: true, deviceSoundEnabled: true });
+    midi.emit('dev-a', [0x90, 60, 100]);
+
+    engine.restore({ ...engine.serialize(), deviceSoundEnabled: false });
+
+    expect(soundingVoices(audio)).toHaveLength(0);
+  });
+
+  it('resetAllSettings turns Device sound off and releases its voices', async () => {
+    const { engine, midi, audio } = await setUpEngine();
+    engine.setSoundGates({ soundEnabled: true, deviceSoundEnabled: true });
+    midi.emit('dev-a', [0x90, 60, 100]);
+
+    engine.resetAllSettings();
+
+    expect(engine.deviceSoundEnabled).toBe(false);
+    expect(soundingVoices(audio)).toHaveLength(0);
+  });
+
+  describe('after a reload with All notes saved', () => {
+    async function reload() {
+      const audio = new SpyAudioContext();
+      audio.state = 'suspended'; // no gesture yet, so the browser holds it suspended
+      const setup = await setUpEngine({
+        audio,
+        storage: savedStorage({ soundEnabled: true, deviceSoundEnabled: true }),
+      });
+      return setup;
+    }
+
+    it('creates the AudioContext at load, suspended, rather than cold on the first note', async () => {
+      const { engine, audio, audioOptions } = await reload();
+
+      expect(audioOptions).toEqual([{ latencyHint: 0 }]);
+      expect(audio.resumeCalls).toBe(0);
+      expect(engine.audioSuspended).toBe(true);
+    });
+
+    it('drops Device notes that arrive before the first gesture, rather than queuing them', async () => {
+      const scene = new FakeScene('a', 'Scene A');
+      const audio = new SpyAudioContext();
+      audio.state = 'suspended';
+      const { midi } = await setUpEngine({
+        audio,
+        scenes: [scene],
+        storage: savedStorage({
+          activeSceneId: 'a',
+          soundEnabled: true,
+          deviceSoundEnabled: true,
+        }),
+      });
+
+      midi.emit('dev-a', [0x90, 60, 100]);
+      window.dispatchEvent(new Event('pointerdown'));
+      await flushMicrotasks();
+
+      expect(audio.oscillators).toHaveLength(0);
+      expect(scene.onNoteOn).toHaveBeenCalledTimes(1); // the visuals still react
+    });
+
+    it('resumes on the first click anywhere, then sounds Device notes', async () => {
+      const { engine, midi, audio } = await reload();
+      const listener = vi.fn();
+      engine.subscribe(listener);
+
+      window.dispatchEvent(new Event('pointerdown'));
+      await flushMicrotasks();
+
+      expect(audio.resumeCalls).toBe(1);
+      expect(engine.audioSuspended).toBe(false);
+      expect(listener).toHaveBeenCalled();
+      midi.emit('dev-a', [0x90, 60, 100]);
+      expect(audio.filters).toHaveLength(1);
+    });
+
+    it('resumes on the first tap, which activates only on pointerup', async () => {
+      const { engine, audio } = await reload();
+
+      window.dispatchEvent(new Event('pointerup'));
+      await flushMicrotasks();
+
+      expect(audio.resumeCalls).toBe(1);
+      expect(engine.audioSuspended).toBe(false);
+    });
+
+    it('resumes on the first key press anywhere, too', async () => {
+      const { engine, audio } = await reload();
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyQ' }));
+      await flushMicrotasks();
+
+      expect(audio.resumeCalls).toBe(1);
+      expect(engine.audioSuspended).toBe(false);
+    });
+  });
+
+  it('creates no AudioContext at load when Off is saved, and a click then creates none', async () => {
+    const { audioOptions } = await setUpEngine({
+      storage: savedStorage({ soundEnabled: false, deviceSoundEnabled: false }),
+    });
+
+    window.dispatchEvent(new Event('pointerdown'));
+
+    expect(audioOptions).toHaveLength(0);
+  });
+
+  it('reports the output latency in milliseconds once audio exists, and null before', async () => {
+    const audio = new SpyAudioContext();
+    const { engine } = await setUpEngine({ audio });
+    expect(engine.audioOutputLatencyMs).toBeNull();
+
+    audio.outputLatency = 0.085;
+    engine.setSoundGates({ soundEnabled: true, deviceSoundEnabled: true });
+
+    expect(engine.audioOutputLatencyMs).toBeCloseTo(85, 5);
   });
 });
 
@@ -3018,7 +3341,7 @@ describe('VisualizerEngine sidebar support: keeping and resetting settings', () 
     engine.setCrystalsOpacity(0.2);
     engine.setResolutionPreset('1920x1080');
     engine.setVirtualInputEnabled(true);
-    engine.setSoundEnabled(false);
+    engine.setSoundGates({ soundEnabled: false, deviceSoundEnabled: false });
 
     engine.resetAllSettings();
 

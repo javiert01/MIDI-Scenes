@@ -257,6 +257,31 @@
   color: var(--text-muted);
 }
 
+/* Sound strip: always shown under the Device card, never collapses. */
+.sound-strip {
+  flex-shrink: 0;
+  margin: 0 var(--gutter) 12px;
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.sound-strip-label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.sound-strip .choices--segmented {
+  background: var(--panel);
+}
+
+.sound-strip .field-hint {
+  margin-top: 6px;
+}
+
 .device-card-notice,
 .device-toast {
   font-size: 12px;

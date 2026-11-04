@@ -88,6 +88,8 @@ export interface TonePlayerOptions {
   tone: SynthTone;
   /** Injected AudioContext factory; defaults to the real browser context. */
   createAudioContext?: AudioContextFactory;
+  /** Called once a suspended context has resumed. */
+  onResumed?: () => void;
 }
 
 interface Voice {
@@ -105,6 +107,7 @@ interface Voice {
 export class TonePlayer {
   private readonly createAudioContext: AudioContextFactory;
   private readonly tone: SynthTone;
+  private readonly onResumed?: () => void;
   private ctx: AudioContextLike | null = null;
   private master: GainNodeLike | null = null;
   /** Set once the injected factory fails (e.g. jsdom/SSR); the player stays silent. */
@@ -115,6 +118,22 @@ export class TonePlayer {
   constructor(options: TonePlayerOptions) {
     this.createAudioContext = options.createAudioContext ?? defaultAudioContextFactory;
     this.tone = options.tone;
+    this.onResumed = options.onResumed;
+  }
+
+  /** Whether audio is running: a context exists and the browser isn't holding it suspended. */
+  get running(): boolean {
+    return this.ctx !== null && (this.ctx.state ?? 'running') === 'running';
+  }
+
+  /** Whether a context exists and the browser holds it suspended, waiting for a gesture. */
+  get suspended(): boolean {
+    return this.ctx?.state === 'suspended';
+  }
+
+  /** The context's output latency in seconds, or null before a context exists or where it isn't reported. */
+  get outputLatency(): number | null {
+    return this.ctx?.outputLatency ?? null;
   }
 
   /**
@@ -153,6 +172,17 @@ export class TonePlayer {
     if (held.holders.size === 0) this.release(held, this.ctx.currentTime);
   }
 
+  /**
+   * Lets go of every hold `source` has, as if each of its note-offs had arrived:
+   * a voice another source still holds keeps sounding (Device sound turned off,
+   * a Device unplugged).
+   */
+  releaseSource(source: SoundSource): void {
+    for (const voice of this.voices.filter((v) => v.holders.has(source))) {
+      this.noteOff(source, voice.note);
+    }
+  }
+
   /** Fades every voice, held or releasing, out over 20 ms (sound turned off). */
   silenceAll(): void {
     if (!this.ctx) return;
@@ -169,8 +199,29 @@ export class TonePlayer {
    */
   start(): AudioContextLike | null {
     const ctx = this.ensureContext();
-    if (ctx?.state === 'suspended') void ctx.resume?.();
+    this.resume();
     return ctx;
+  }
+
+  /**
+   * Creates the AudioContext without resuming it. At page load, with no gesture
+   * yet, the browser leaves it suspended until `resume()`; creating it early
+   * spares the first note a cold start.
+   */
+  prepare(): void {
+    this.ensureContext();
+  }
+
+  /** Resumes the context if the browser holds it suspended. Never creates one. */
+  resume(): void {
+    const ctx = this.ctx;
+    if (ctx?.state !== 'suspended' || !ctx.resume) return;
+    void ctx.resume().then(
+      () => this.onResumed?.(),
+      () => {
+        // Refused without a gesture: stays suspended until the next one.
+      },
+    );
   }
 
   /**

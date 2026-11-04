@@ -47,6 +47,8 @@ export interface AudioContextLike {
   readonly currentTime: number;
   readonly destination: AudioNodeLike;
   readonly state?: AudioContextState;
+  /** Seconds from scheduling a sound to hearing it. Not reported everywhere (older Safari). */
+  readonly outputLatency?: number;
   createOscillator(): OscillatorNodeLike;
   createGain(): GainNodeLike;
   createBiquadFilter(): BiquadFilterNodeLike;
