@@ -64,6 +64,8 @@ const DEFAULT_CRYSTALS_VISIBLE = true;
 const DEFAULT_CRYSTALS_OPACITY = 1;
 const DEFAULT_VIRTUAL_INPUT_ENABLED = false;
 const DEFAULT_SOUND_ENABLED = true;
+/** Off by default, so a recording captures no Device sound unless the user opts in (ADR-0009). */
+const DEFAULT_DEVICE_SOUND_ENABLED = false;
 
 /** Single versioned key holding the whole remembered setup (Scene, params, Device, etc). */
 export const STORAGE_KEY = 'midiviz.v1';
@@ -114,6 +116,22 @@ export interface PersistedStateV1 {
   virtualInputEnabled: boolean;
   /** Whether the Tone Player sounds Virtual Input notes. Defaults to on when absent (see ADR-0007, ADR-0009). */
   soundEnabled: boolean;
+  /** Whether the Tone Player sounds the Device's notes. Optional, and off when absent (ADR-0009). */
+  deviceSoundEnabled?: boolean;
+}
+
+/** The two stored sound gates the sidebar's Sound strip maps onto. */
+export interface SoundGates {
+  /** Virtual Input sound. */
+  soundEnabled: boolean;
+  /** Device sound. */
+  deviceSoundEnabled: boolean;
+}
+
+/** How one sound gate moves from `before` to `after`. */
+function gateChange(before: boolean, after: boolean): 'on' | 'off' | 'same' {
+  if (before === after) return 'same';
+  return after ? 'on' : 'off';
 }
 
 /**
@@ -237,8 +255,10 @@ export class VisualizerEngine {
   // The Tone Player voices the Virtual Input's surfaces (keyboard + Piano
   // Preview clicks), called at each surface before the note is dispatched, never
   // from the source-agnostic dispatch core (ADR-0009). Virtual Input notes sound
-  // only while `soundEnabled` is on.
+  // only while `soundEnabled` is on. The Device's raw-message handler calls it
+  // too, only while `deviceSoundEnabled` is on and audio is running.
   private soundEnabledState = DEFAULT_SOUND_ENABLED;
+  private deviceSoundEnabledState = DEFAULT_DEVICE_SOUND_ENABLED;
   private readonly tonePlayer: TonePlayer;
   // The Holds of the sources that sound: both Virtual Input surfaces share the
   // Tone Player's one `virtual` source, so a voice ends only on its note's last
@@ -307,10 +327,13 @@ export class VisualizerEngine {
       options.storage ?? (typeof window !== 'undefined' ? window.localStorage : undefined);
 
     // Creates no AudioContext yet: that waits for the gesture that turns sound
-    // on, or the first Virtual Input note.
+    // on, the first Virtual Input note, or a reload with sound saved on (setup).
     this.tonePlayer = new TonePlayer({
       tone: WARM_ANALOG,
       createAudioContext: options.createAudioContext,
+      onResumed: () => {
+        if (!this.destroyed) this.notify();
+      },
     });
 
     this.registry = new SceneRegistry(options.scenes ?? []);
@@ -340,6 +363,11 @@ export class VisualizerEngine {
           this.activateFirstScene();
           this.notify();
         }
+        // After a reload with sound saved on, create the AudioContext now, while
+        // no gesture has happened yet, so the browser holds it suspended until
+        // the first click or key press (see bindWindowListeners), and the first
+        // note never pays for a cold start.
+        if (restored && this.soundIsOn) this.tonePlayer.prepare();
       };
       p.draw = () => {
         this.renderFrame(p);
@@ -361,7 +389,13 @@ export class VisualizerEngine {
     const onKeyUp = ((event: KeyboardEvent) => this.handleKeyUp(event)) as EventListener;
     const onBlur = (() => this.releaseVirtualNotes()) as EventListener;
     const onMouseUp = (() => this.setMouseNote(null)) as EventListener;
+    // Any click, tap or key press is a gesture that lets a suspended AudioContext
+    // resume. A touch counts as activation only on pointerup, a mouse on pointerdown.
+    const onGesture = (() => this.resumeAudioOnGesture()) as EventListener;
     const bound: Array<[string, EventListener]> = [
+      ['keydown', onGesture],
+      ['pointerdown', onGesture],
+      ['pointerup', onGesture],
       ['keydown', onKeyDown],
       ['keyup', onKeyUp],
       ['blur', onBlur],
@@ -500,6 +534,26 @@ export class VisualizerEngine {
     return this.soundEnabledState;
   }
 
+  /** Whether the Tone Player sounds the Device's notes. Default off, so recordings stay clean. */
+  get deviceSoundEnabled(): boolean {
+    return this.deviceSoundEnabledState;
+  }
+
+  /**
+   * Whether the AudioContext exists but the browser holds it suspended: after a
+   * reload, until the first click or key press resumes it. Device notes are
+   * dropped meanwhile. False where no context exists (none yet, or no Web Audio).
+   */
+  get audioSuspended(): boolean {
+    return this.tonePlayer.suspended;
+  }
+
+  /** The AudioContext's output latency in ms, or null before audio exists or where it isn't reported. */
+  get audioOutputLatencyMs(): number | null {
+    const seconds = this.tonePlayer.outputLatency;
+    return seconds === null ? null : seconds * 1000;
+  }
+
   /** Bumped on every dispatched note-on/off; sidebar can diff it to flash an activity indicator. */
   get activityTick(): number {
     return this.noteActivityTick;
@@ -589,7 +643,10 @@ export class VisualizerEngine {
     this.applyResolutionPreset(DEFAULT_PRESET);
     if (this.virtualInputEnabledState) this.releaseVirtualNotes();
     this.virtualInputEnabledState = DEFAULT_VIRTUAL_INPUT_ENABLED;
-    this.soundEnabledState = DEFAULT_SOUND_ENABLED;
+    this.applySoundGates({
+      soundEnabled: DEFAULT_SOUND_ENABLED,
+      deviceSoundEnabled: DEFAULT_DEVICE_SOUND_ENABLED,
+    });
     if (this.registry.list().length > 0) this.activateFirstScene();
     else this.deactivateScene();
     this.cachedParams = this.computeActiveParams();
@@ -676,18 +733,48 @@ export class VisualizerEngine {
   }
 
   /**
-   * Toggles the Sound setting. Audio still only sounds when the Virtual Input is
-   * also enabled. Turning Sound on is the user's gesture, so it starts audio
-   * then, sparing the first note a cold start; it affects only subsequent notes.
-   * Turning it off silences every voice at once.
+   * Sets both sound gates at once, as the Sound strip does. Turning a gate on is
+   * the user's gesture, so it creates and resumes audio then, sparing the first
+   * note a cold start; it affects only subsequent notes. Turning both off
+   * silences every voice at once; turning one off releases that source's voices.
    */
-  setSoundEnabled(enabled: boolean): void {
-    if (enabled === this.soundEnabledState) return;
-    this.soundEnabledState = enabled;
-    if (enabled) this.tonePlayer.start();
-    else this.tonePlayer.silenceAll();
+  setSoundGates(gates: SoundGates): void {
+    const { changed, turnedOn } = this.applySoundGates(gates);
+    if (!changed) return;
+    if (turnedOn) this.tonePlayer.start();
     this.persist();
     this.notify();
+  }
+
+  /** Whether either sound gate is on: the Sound strip isn't on Off. */
+  private get soundIsOn(): boolean {
+    return this.soundEnabledState || this.deviceSoundEnabledState;
+  }
+
+  /**
+   * Stores the gates and quiets whatever a closed gate no longer lets sound.
+   * Never starts audio, since restoring isn't a gesture; reports whether any
+   * gate changed and whether one turned on, so a gesture's caller can.
+   */
+  private applySoundGates(gates: SoundGates): { changed: boolean; turnedOn: boolean } {
+    const virtual = gateChange(this.soundEnabledState, gates.soundEnabled);
+    const device = gateChange(this.deviceSoundEnabledState, gates.deviceSoundEnabled);
+    this.soundEnabledState = gates.soundEnabled;
+    this.deviceSoundEnabledState = gates.deviceSoundEnabled;
+    if (!this.soundIsOn) this.tonePlayer.silenceAll();
+    else {
+      if (virtual === 'off') this.tonePlayer.releaseSource('virtual');
+      if (device === 'off') this.tonePlayer.releaseSource('device');
+    }
+    return {
+      changed: virtual !== 'same' || device !== 'same',
+      turnedOn: virtual === 'on' || device === 'on',
+    };
+  }
+
+  /** A click or key press anywhere resumes audio the browser holds suspended, while sound is on. */
+  private resumeAudioOnGesture(): void {
+    if (this.soundIsOn) this.tonePlayer.resume();
   }
 
   /** Selects the single Device the engine binds MIDI message handlers to. */
@@ -719,6 +806,7 @@ export class VisualizerEngine {
       crystalsRightColor: this.crystalsRightColorState,
       virtualInputEnabled: this.virtualInputEnabledState,
       soundEnabled: this.soundEnabledState,
+      deviceSoundEnabled: this.deviceSoundEnabledState,
     };
   }
 
@@ -774,11 +862,16 @@ export class VisualizerEngine {
       this.virtualInputEnabledState = state.virtualInputEnabled;
     }
 
-    // Absent in pre-Preview-Synth snapshots: default to on (no version bump).
-    if (typeof state.soundEnabled === 'boolean') {
-      this.soundEnabledState = state.soundEnabled;
-    }
-    if (!this.soundEnabledState) this.tonePlayer.silenceAll();
+    // Absent in older snapshots, so each keeps its default: Virtual Input sound
+    // on, Device sound off (no version bump).
+    this.applySoundGates({
+      soundEnabled:
+        typeof state.soundEnabled === 'boolean' ? state.soundEnabled : this.soundEnabledState,
+      deviceSoundEnabled:
+        typeof state.deviceSoundEnabled === 'boolean'
+          ? state.deviceSoundEnabled
+          : this.deviceSoundEnabledState,
+    });
 
     if (
       typeof state.resolutionPreset === 'string' &&
@@ -960,8 +1053,9 @@ export class VisualizerEngine {
     this.unsubscribeMessage = this.midiAccess.onMessage(id, (data) => this.handleRawMessage(data));
   }
 
-  /** Ends every note the outgoing Device still holds, as its note-offs will never arrive. */
+  /** Ends every note the outgoing Device still holds, and its voices, as its note-offs will never arrive. */
   private releaseDeviceNotes(): void {
+    this.tonePlayer.releaseSource('device');
     this.releaseSource('device');
   }
 
@@ -976,10 +1070,22 @@ export class VisualizerEngine {
   private handleRawMessage(data: number[]): void {
     const parsed = parseNoteMessage(data);
     if (!parsed) return;
-    // A note-off for a key pressed before this Device was wired comes back from
-    // the ledger as unmatched, so it takes no other source's Hold.
-    if (parsed.type === 'noteon') this.dispatchNoteOn('device', parsed.event);
-    else this.dispatchNoteOff('device', parsed.event);
+    const { event } = parsed;
+    // Sounded before dispatch, so rendering never delays audio (ADR-0009). A
+    // note-on sounds only while Device sound is on and audio is running: before
+    // the first gesture resumes it, the note is dropped, not queued. A note-off
+    // always reaches the Tone Player, which ignores a note the Device isn't holding.
+    if (parsed.type === 'noteon') {
+      if (this.deviceSoundEnabledState && this.tonePlayer.running) {
+        this.tonePlayer.noteOn('device', event.note, event.raw);
+      }
+      this.dispatchNoteOn('device', event);
+    } else {
+      this.tonePlayer.noteOff('device', event.note);
+      // A note-off for a key pressed before this Device was wired comes back from
+      // the ledger as unmatched, so it takes no other source's Hold.
+      this.dispatchNoteOff('device', event);
+    }
   }
 
   // The single note-dispatch core: real Device messages and the Virtual Input's

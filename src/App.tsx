@@ -19,6 +19,12 @@ import { createDefaultScenes } from '@/scenes';
 import type { ParamSpec, ParamValue } from '@/engine/scene';
 import { describeDeviceChange, describeDeviceStatus, type DeviceState } from '@/deviceStatus';
 import {
+  SOUND_MODE_OPTIONS,
+  describeSoundStrip,
+  gatesForSoundMode,
+  type SoundStripView,
+} from '@/soundStrip';
+import {
   isExpanded,
   parseExpansion,
   SIDEBAR_EXPANSION_KEY,
@@ -139,6 +145,7 @@ function Sidebar({
         </button>
       </header>
       <DeviceCard engine={engine} notice={deviceNotice} />
+      <SoundStrip engine={engine} />
       <ExpansionProvider>
         <div className="sidebar-body">
           <SceneSection engine={engine} />
@@ -190,6 +197,39 @@ function useDeviceNotice(engine: VisualizerEngine): string | null {
   return notice;
 }
 
+/** The Sound strip's state, from the engine's sound gates and audio state. */
+function useSoundStrip(engine: VisualizerEngine): SoundStripView {
+  const soundEnabled = useEngineValue(engine, (e) => e.soundEnabled);
+  const deviceSoundEnabled = useEngineValue(engine, (e) => e.deviceSoundEnabled);
+  const audioSuspended = useEngineValue(engine, (e) => e.audioSuspended);
+  const outputLatencyMs = useEngineValue(engine, (e) => e.audioOutputLatencyMs);
+  return describeSoundStrip({ soundEnabled, deviceSoundEnabled, audioSuspended, outputLatencyMs });
+}
+
+/**
+ * Always on screen and never collapses, directly under the Device card. Clicking
+ * a segment is the gesture that creates and resumes audio.
+ */
+function SoundStrip({ engine }: { engine: VisualizerEngine }) {
+  const strip = useSoundStrip(engine);
+  return (
+    <section className="sound-strip" aria-label="Sound">
+      <span className="sound-strip-label" aria-hidden="true">
+        Sound
+      </span>
+      <RadioChoices
+        name="sound-mode"
+        label="Sound"
+        layout="segmented"
+        options={SOUND_MODE_OPTIONS}
+        value={strip.mode}
+        onChange={(mode) => engine.setSoundGates(gatesForSoundMode(mode))}
+      />
+      {strip.latencyHint && <p className="field-hint">{strip.latencyHint}</p>}
+    </section>
+  );
+}
+
 const ACTIVITY_PULSE_MS = 200;
 
 /** Always on screen, so whether a keyboard is connected never depends on what is expanded. */
@@ -200,6 +240,7 @@ function DeviceCard({ engine, notice }: { engine: VisualizerEngine; notice: stri
   const savedDeviceName = useEngineValue(engine, (e) => e.savedDeviceName);
   const virtualInputEnabled = useEngineValue(engine, (e) => e.virtualInputEnabled);
   const activityTick = useEngineValue(engine, (e) => e.activityTick);
+  const { deviceHint } = useSoundStrip(engine);
 
   const [pulsing, setPulsing] = useState(false);
   const isFirstTick = useRef(true);
@@ -232,6 +273,7 @@ function DeviceCard({ engine, notice }: { engine: VisualizerEngine; notice: stri
         <strong className="device-card-title">{status.title}</strong>
       </div>
       <p className="device-card-detail">{status.detail}</p>
+      {deviceHint && <p className="device-card-notice">{deviceHint}</p>}
       {status.offerVirtualInput && (
         <button
           type="button"
@@ -728,7 +770,6 @@ function InputSection({ engine }: { engine: VisualizerEngine }) {
   const devices = useEngineValue(engine, (e) => e.devices);
   const activeDeviceId = useEngineValue(engine, (e) => e.activeDeviceId);
   const virtualInputEnabled = useEngineValue(engine, (e) => e.virtualInputEnabled);
-  const soundEnabled = useEngineValue(engine, (e) => e.soundEnabled);
   const octaveLabel = useEngineValue(engine, (e) => e.virtualInputOctaveLabel);
   // Clicking a Piano Preview key only plays while that band is showing, so the
   // hint is only truthful then (see issue #22).
@@ -770,12 +811,6 @@ function InputSection({ engine }: { engine: VisualizerEngine }) {
         />
         {virtualInputEnabled && (
           <>
-            <SwitchField
-              label="Sound"
-              hint="Hear these notes through a built-in synth."
-              checked={soundEnabled}
-              onChange={(checked) => engine.setSoundEnabled(checked)}
-            />
             <dl className="key-legend">
               <div>
                 <dt>White keys</dt>

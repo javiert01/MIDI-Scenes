@@ -67,6 +67,7 @@ class FakeWaveShaper extends FakeNode implements WaveShaperNodeLike {
 class FakeAudioContext implements AudioContextLike {
   currentTime = 0;
   state: AudioContextState = 'running';
+  outputLatency?: number;
   destination = new FakeNode();
   oscillators: FakeOscillator[] = [];
   gains: FakeGain[] = [];
@@ -178,6 +179,53 @@ describe('TonePlayer', () => {
       player.noteOn('virtual', 60, 100);
 
       expect(ctx.resumeCalls).toBe(1);
+    });
+
+    it('prepare() creates the context without resuming it, as at page load before any gesture', () => {
+      ctx.state = 'suspended';
+
+      player.prepare();
+
+      expect(factoryOptions).toEqual([{ latencyHint: 0 }]);
+      expect(ctx.resumeCalls).toBe(0);
+      expect(player.running).toBe(false);
+      expect(player.suspended).toBe(true);
+    });
+
+    it('resume() resumes a suspended context and reports when it is running', async () => {
+      const changes: boolean[] = [];
+      const watched = new TonePlayer({
+        tone: WARM_ANALOG,
+        createAudioContext: () => ctx,
+        onResumed: () => changes.push(watched.running),
+      });
+      ctx.state = 'suspended';
+      watched.prepare();
+
+      watched.resume();
+      await Promise.resolve();
+
+      expect(ctx.resumeCalls).toBe(1);
+      expect(watched.running).toBe(true);
+      expect(changes).toEqual([true]);
+    });
+
+    it('resume() creates no context of its own', () => {
+      player.resume();
+
+      expect(factoryOptions).toHaveLength(0);
+      expect(player.running).toBe(false);
+      expect(player.suspended).toBe(false);
+    });
+
+    it('reports the output latency where the browser reports it, and null where it does not', () => {
+      expect(player.outputLatency).toBeNull();
+
+      player.prepare();
+      expect(player.outputLatency).toBeNull();
+
+      ctx.outputLatency = 0.085;
+      expect(player.outputLatency).toBeCloseTo(0.085, 5);
     });
 
     it('stays silent, without throwing, where Web Audio is unavailable', () => {
@@ -332,6 +380,20 @@ describe('TonePlayer', () => {
       player.noteOff('device', 60);
       player.noteOff('virtual', 64);
 
+      expect(sounding(ctx)).toHaveLength(1);
+    });
+
+    it('releaseSource() lets go of every hold one source has, leaving other sources sounding', () => {
+      player.noteOn('device', 60, 100);
+      player.noteOn('device', 64, 100);
+      player.noteOn('virtual', 64, 100);
+      player.noteOn('virtual', 67, 100);
+
+      player.releaseSource('device');
+
+      // 60 releases; 64 keeps sounding on the Virtual Input's hold; 67 is untouched.
+      expect(sounding(ctx)).toHaveLength(2);
+      player.noteOff('virtual', 64);
       expect(sounding(ctx)).toHaveLength(1);
     });
 
