@@ -55,6 +55,17 @@ export interface ToneOptions {
 export type DownloadLine =
   { kind: 'progress'; fraction: number; text: string } | { kind: 'failed'; text: string };
 
+/**
+ * The attribution under the dropdown, split so the licence's name can link to its
+ * text: `before`, then the licence, then `after`. `licence` is null when the credit
+ * names no licence the strip knows.
+ */
+export interface CreditLine {
+  before: string;
+  licence: { label: string; href: string } | null;
+  after: string;
+}
+
 export interface SoundStripView {
   mode: SoundMode;
   /** The muted line warning that sound lags the keys, or null. */
@@ -65,6 +76,8 @@ export interface SoundStripView {
   tonePicker: { menu: ToneOptions; selected: string } | null;
   /** Download progress or failure for the selected Tone, while sound isn't Off, or null. */
   download: DownloadLine | null;
+  /** The selected Tone's credit, while sound isn't Off, where its licence asks for one; or null. */
+  credit: CreditLine | null;
 }
 
 /** The catalogue is fixed, so the dropdown's layout is built once. */
@@ -72,6 +85,11 @@ const TONE_MENU = toneMenu();
 
 /** The Tone that plays while the selected one loads, or after it failed. */
 const STAND_IN_TONE_NAME = toneById(DEFAULT_TONE_ID).name;
+
+/** Licences a credit may name, and where their text lives. */
+const LICENCE_LINKS: Record<string, string> = {
+  'CC BY 3.0': 'https://creativecommons.org/licenses/by/3.0/',
+};
 
 /** Output latency above this is worth warning about (ms). */
 const LATENCY_HINT_THRESHOLD_MS = 60;
@@ -101,7 +119,9 @@ export function describeSoundStrip(
   const deviceHint =
     deviceSoundEnabled && audioSuspended ? 'Click anywhere to turn sound on' : null;
 
-  if (mode === 'off') return { mode, latencyHint, deviceHint, tonePicker: null, download: null };
+  if (mode === 'off') {
+    return { mode, latencyHint, deviceHint, tonePicker: null, download: null, credit: null };
+  }
 
   const option = ({ id, name }: ToneMenuItem): ToneOption => {
     const bytes = downloadBytes[id];
@@ -119,7 +139,24 @@ export function describeSoundStrip(
     deviceHint,
     tonePicker: { menu, selected: toneId },
     download: describeDownload(state),
+    credit: describeCredit(toneById(toneId).credit),
   };
+}
+
+/** Splits a Tone's credit around the first licence it names, so that name can link to the licence. */
+function describeCredit(credit: string | undefined): CreditLine | null {
+  if (!credit) return null;
+  for (const [label, href] of Object.entries(LICENCE_LINKS)) {
+    const at = credit.indexOf(label);
+    if (at !== -1) {
+      return {
+        before: credit.slice(0, at),
+        licence: { label, href },
+        after: credit.slice(at + label.length),
+      };
+    }
+  }
+  return { before: credit, licence: null, after: '' };
 }
 
 /** The selected Tone's download line: progress while it loads, Retry once it failed. */

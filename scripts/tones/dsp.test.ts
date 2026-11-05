@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  capTail,
   cropStart,
   deinterleave,
   equalPowerLoopCrossfade,
@@ -85,6 +86,32 @@ describe('linear fades', () => {
     fadeIn([input], 4);
     fadeOut([input], 4);
     expect([...input]).toEqual([1, 1, 1, 1]);
+  });
+});
+
+describe('capTail', () => {
+  it('cuts the audio to the cap and fades the last frames to silence', () => {
+    const [c] = capTail([new Float32Array(10).fill(1)], 6, 4);
+    expect([...c]).toEqual([1, 1, 0.75, 0.5, 0.25, 0]);
+  });
+
+  it('caps every channel alike', () => {
+    const out = capTail([new Float32Array(10).fill(1), new Float32Array(10).fill(-1)], 3, 1);
+    expect(out.map((c) => [...c])).toEqual([
+      [1, 1, 0],
+      [-1, -1, -0],
+    ]);
+  });
+
+  it('leaves audio already within the cap as it is, with no fade', () => {
+    const [c] = capTail([new Float32Array(6).fill(1)], 6, 4);
+    expect([...c]).toEqual([1, 1, 1, 1, 1, 1]);
+  });
+
+  it('leaves the input untouched', () => {
+    const input = new Float32Array(10).fill(1);
+    capTail([input], 6, 4);
+    expect([...input]).toEqual(new Array(10).fill(1));
   });
 });
 

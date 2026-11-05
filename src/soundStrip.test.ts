@@ -75,10 +75,11 @@ describe('the Tone dropdown', () => {
     expect(describeSoundStrip(state({ soundEnabled: false })).tonePicker).toBeNull();
   });
 
-  it('lists Warm Analog first, then each Genre as a group: only Cumbia, with the Accordion and Villera Lead, for now', () => {
+  it('lists Warm Analog first, then each Genre as a group, sized from the committed files', () => {
     expect(describeSoundStrip(state()).tonePicker?.menu).toEqual({
       first: { id: 'warm-analog', label: 'Warm Analog' },
       groups: [
+        { genre: 'Classical', tones: [{ id: 'grand-piano', label: 'Grand Piano (7 MB)' }] },
         {
           genre: 'Cumbia',
           tones: [
@@ -90,25 +91,52 @@ describe('the Tone dropdown', () => {
     });
   });
 
-  it('never gives a synthesised Tone a size label: Villera Lead has nothing to download', () => {
-    const villera = describeSoundStrip(state()).tonePicker?.menu.groups[0].tones.find(
-      (t) => t.id === 'villera-lead',
-    );
+  const label = (strip: ReturnType<typeof describeSoundStrip>, id: string) =>
+    strip.tonePicker?.menu.groups.flatMap((g) => g.tones).find((t) => t.id === id)?.label;
 
-    expect(villera?.label).toBe('Villera Lead');
+  it('never gives a synthesised Tone a size label: Villera Lead has nothing to download', () => {
+    expect(label(describeSoundStrip(state()), 'villera-lead')).toBe('Villera Lead');
   });
 
   it("labels a Tone not yet downloaded with its download's size, from its committed files", () => {
     const strip = describeSoundStrip(state(), { accordion: 3.4 * 2 ** 20 });
 
-    expect(strip.tonePicker?.menu.groups[0].tones[0].label).toBe('Accordion (3 MB)');
+    expect(label(strip, 'accordion')).toBe('Accordion (3 MB)');
   });
 
   it('drops the size once the Tone has downloaded, and never gives Warm Analog one', () => {
     const strip = describeSoundStrip(state({ downloadedToneIds: ['accordion'] }));
 
     expect(strip.tonePicker?.menu.first.label).toBe('Warm Analog');
-    expect(strip.tonePicker?.menu.groups[0].tones[0].label).toBe('Accordion');
+    expect(label(strip, 'accordion')).toBe('Accordion');
+  });
+});
+
+describe('the credit line', () => {
+  it('credits Salamander while the Grand Piano is selected, linking CC BY 3.0 to its licence', () => {
+    const strip = describeSoundStrip(state({ toneId: 'grand-piano' }));
+
+    expect(strip.credit).toEqual({
+      before: 'Salamander Grand Piano by Alexander Holm, ',
+      licence: { label: 'CC BY 3.0', href: 'https://creativecommons.org/licenses/by/3.0/' },
+      after: ', trimmed and re-encoded.',
+    });
+  });
+
+  it('stays while the Grand Piano downloads, or after it failed', () => {
+    for (const toneStatus of ['loading', 'failed'] as const) {
+      expect(
+        describeSoundStrip(state({ toneId: 'grand-piano', toneStatus })).credit,
+      ).not.toBeNull();
+    }
+  });
+
+  it('shows nothing for a Tone whose sources ask for no credit, or while sound is Off', () => {
+    expect(describeSoundStrip(state()).credit).toBeNull();
+    expect(describeSoundStrip(state({ toneId: 'accordion' })).credit).toBeNull();
+    expect(
+      describeSoundStrip(state({ soundEnabled: false, toneId: 'grand-piano' })).credit,
+    ).toBeNull();
   });
 });
 
