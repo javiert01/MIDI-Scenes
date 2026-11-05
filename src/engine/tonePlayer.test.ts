@@ -200,10 +200,15 @@ function voices(ctx: FakeAudioContext): Voice[] {
   }));
 }
 
+/** Bends glide towards the wheel with a time constant of about 4 ms. */
+const BEND_TIME_CONSTANT = 0.004;
+
 const isSounding = (v: Voice) => v.oscillators.every((o) => o.started && !o.stopped);
 const sounding = (ctx: FakeAudioContext) => voices(ctx).filter(isSounding);
 
 describe('TonePlayer', () => {
+  /** The voice's own fixed-gain node, which the Tone Player fades when it steals or retriggers. */
+  const fixedGainOf = (v: Voice) => (v.filter.connectedTo as FakeGain).connectedTo as FakeGain;
   let ctx: FakeAudioContext;
   let factoryOptions: AudioContextOptions[];
   let player: TonePlayer;
@@ -528,8 +533,10 @@ describe('TonePlayer', () => {
 
       const [old, fresh] = voices(ctx);
       for (const osc of old.oscillators) expect(osc.stopTime).toBeCloseTo(1.02, 5);
-      const oldFixedGain = (old.filter.connectedTo as FakeGain).connectedTo as FakeGain;
-      expect(oldFixedGain.gain.ramps.at(-1)).toEqual({ value: 0, time: expect.closeTo(1.02, 5) });
+      expect(fixedGainOf(old).gain.ramps.at(-1)).toEqual({
+        value: 0,
+        time: expect.closeTo(1.02, 5),
+      });
       expect(isSounding(fresh)).toBe(true);
     });
 
@@ -570,8 +577,6 @@ describe('TonePlayer', () => {
   });
 
   describe('pitch bend', () => {
-    const BEND_TIME_CONSTANT = 0.004;
-
     it('bends every oscillator of a held voice by up to ±2 semitones, gliding with a 4 ms time constant', () => {
       player.noteOn('virtual', 60, 100);
       ctx.currentTime = 1;
@@ -633,8 +638,6 @@ describe('TonePlayer', () => {
   });
 
   describe('the 32-voice cap', () => {
-    /** The voice's own fixed-gain node, which the Tone Player fades when it steals. */
-    const fixedGainOf = (v: Voice) => (v.filter.connectedTo as FakeGain).connectedTo as FakeGain;
     const voiceFor = (note: number) =>
       voices(ctx).find((v) =>
         v.oscillators.some((o) => Math.abs(o.frequency.value - midiToFrequency(note)) < 0.01),
@@ -927,6 +930,19 @@ describe('TonePlayer with a sampled Tone', () => {
       expect(ctx.bufferSources).toHaveLength(0);
     });
 
+    it('keep a pedal-held note sounding when it is pressed again where the new Tone has no sound', () => {
+      player.setSustain(true);
+      player.noteOn('virtual', 30, 100); // Warm Analog sounds everywhere
+      player.noteOff('virtual', 30);
+      selectSampled([region({ keyLo: 36, keyHi: 83 })]);
+
+      player.noteOn('device', 30, 100);
+
+      expect(sounding(ctx)).toHaveLength(1); // no silent retrigger: the pedal still holds it
+      player.setSustain(false);
+      expect(sounding(ctx)).toHaveLength(0);
+    });
+
     it('stay silent outside every region, taking no voice', () => {
       selectSampled([region({ keyLo: 36, keyHi: 83 })]);
 
@@ -1043,7 +1059,11 @@ describe('TonePlayer with a sampled Tone', () => {
       player.setPitchBend(-1);
 
       for (const source of ctx.bufferSources) {
-        expect(source.detune.targets.at(-1)).toEqual({ value: -200, time: 1, timeConstant: 0.004 });
+        expect(source.detune.targets.at(-1)).toEqual({
+          value: -200,
+          time: 1,
+          timeConstant: BEND_TIME_CONSTANT,
+        });
       }
     });
 

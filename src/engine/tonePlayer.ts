@@ -197,8 +197,8 @@ export class TonePlayer {
    * another source already holds gains a hold with no new attack; a note this
    * source already holds retriggers, its old voice releasing. A note the pedal
    * holds retriggers too, its old voice fading out over 20 ms. A note the Tone
-   * has no sound for stays silent and takes no voice. A note starts bent as far
-   * as the wheel is.
+   * has no sound for stays silent and takes no voice, leaving any voice the pedal
+   * holds on it. A note starts bent as far as the wheel is.
    */
   noteOn(source: SoundSource, note: number, velocity: number): void {
     const ctx = this.start();
@@ -210,10 +210,11 @@ export class TonePlayer {
       return;
     }
     if (held) this.release(held, ctx.currentTime);
+    const tone = this.tone;
+    // A pedal-held note the new Tone can't sound keeps sounding: a retrigger into silence would just cut it.
+    if (!tone.sounds(note, velocity)) return;
     const pedalled = this.voices.find((v) => v.note === note && v.pedalHeld);
     if (pedalled) this.fadeOut(pedalled, ctx.currentTime);
-    const tone = this.tone;
-    if (!tone.sounds(note, velocity)) return;
     this.makeRoom(ctx.currentTime);
 
     const output = ctx.createGain();
@@ -244,8 +245,8 @@ export class TonePlayer {
 
   /**
    * Presses or lifts the Device's sustain pedal. It holds every source's notes,
-   * Virtual Input ones included, since it is one instrument. Lifting it releases
-   * every note no key still holds.
+   * Virtual Input ones included, as one pedal over everything that sounds.
+   * Lifting it releases every note no key still holds.
    */
   setSustain(down: boolean): void {
     this.sustainDown = down;
