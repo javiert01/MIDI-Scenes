@@ -41,11 +41,6 @@ describe('the Tone catalogue', () => {
     });
   });
 
-  it("keeps Villera Lead's saved id whatever it is called: the name is only a label", () => {
-    const villera = TONES.find((t) => t.name === 'Villera Lead');
-    expect(villera?.id).toBe('villera-lead');
-  });
-
   it('defaults to Warm Analog', () => {
     expect(DEFAULT_TONE_ID).toBe('warm-analog');
   });

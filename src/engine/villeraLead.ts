@@ -26,7 +26,7 @@ const WAVES: readonly { type: OscillatorType; cents: number; level: number }[] =
   { type: 'sawtooth', cents: 6, level: 0.35 },
 ];
 
-/** A high-pass that thins the body out, so the lead sits above the band. */
+/** A high-pass that thins the body out, so the lead sits above the rest of the mix. */
 const HIGH_PASS_HZ = 320;
 const HIGH_PASS_Q = 0.7;
 /** The nasal peak: a narrow, strong boost that gives the lead its reedy bite. */
@@ -57,12 +57,16 @@ const ATTACK_SECONDS = DEFINITION.attackSeconds;
 const SETTLE_SECONDS = 0.12;
 /** ...to this share of the peak. */
 const SUSTAIN_RATIO = 0.85;
-/** How long a released note takes to fall silent (seconds), from the catalogue. */
+/**
+ * How long a released note takes to fall silent (seconds), from the catalogue.
+ * The fade is linear, like every Tone's here, where the bench approached zero
+ * exponentially.
+ */
 const RELEASE_SECONDS = DEFINITION.releaseSeconds;
 /** How far velocity shapes the level: level × (1 − t + t · v/127), so (0.55 + 0.45 · v/127). */
 const VELOCITY_TRACKING = DEFINITION.velocityTracking;
 
-function filter(
+function createFilter(
   ctx: AudioContextLike,
   type: BiquadFilterType,
   frequency: number,
@@ -95,10 +99,10 @@ function startVoice(
   envelope.connect(output);
 
   // High-pass -> nasal peak -> low-pass -> envelope.
-  const highPass = filter(ctx, 'highpass', HIGH_PASS_HZ, HIGH_PASS_Q, now);
-  const peak = filter(ctx, 'peaking', PEAK_HZ, PEAK_Q, now);
+  const highPass = createFilter(ctx, 'highpass', HIGH_PASS_HZ, HIGH_PASS_Q, now);
+  const peak = createFilter(ctx, 'peaking', PEAK_HZ, PEAK_Q, now);
   peak.gain.setValueAtTime(PEAK_DB, now);
-  const lowPass = filter(ctx, 'lowpass', LOW_PASS_HZ, LOW_PASS_Q, now);
+  const lowPass = createFilter(ctx, 'lowpass', LOW_PASS_HZ, LOW_PASS_Q, now);
   highPass.connect(peak);
   peak.connect(lowPass);
   lowPass.connect(envelope);

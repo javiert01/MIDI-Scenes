@@ -23,8 +23,8 @@ export interface ToneDefinition {
   attackSeconds: number;
   /**
    * How far velocity shapes the Tone's level, 0..1. A sampled Tone's gain is
-   * scaled by 1 − t + t · (v/127)²; Villera Lead, synthesised, has its own,
-   * linear response, 1 − t + t · v/127. 0 ignores velocity.
+   * scaled by 1 − t + t · (v/127)². A synthesised Tone applies it its own way,
+   * as its module says. 0 ignores velocity.
    */
   velocityTracking: number;
   /** Attribution the Sound strip shows while the Tone is selected, where a licence asks for it. */
@@ -67,7 +67,7 @@ export const TONES: readonly ToneDefinition[] = [
     gainDb: -3,
     releaseSeconds: 0.12,
     attackSeconds: 0.006,
-    // Its own response: level × (0.55 + 0.45 · v/127).
+    // Linear, unlike a sampled Tone's: see `src/engine/villeraLead.ts`.
     velocityTracking: 0.45,
   },
 ];

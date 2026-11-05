@@ -4086,7 +4086,7 @@ describe('VisualizerEngine Tones', () => {
       expect(loads.map((l) => l.tone.id)).toEqual(['accordion']);
     });
 
-    it('restores a saved Villera Lead and plays it at once, loading nothing', () => {
+    it("restores Villera Lead from its saved id, 'villera-lead', and plays it at once, loading nothing", () => {
       const { engine, audio, loads } = setUpEngine({
         storage: savedStorage({ toneId: 'villera-lead' }),
       });
