@@ -30,6 +30,11 @@ class FakeAudioParam implements AudioParamLike {
   linearRampToValueAtTime(value: number, time: number): void {
     this.ramps.push({ value, time });
   }
+  /** Each exponential approach scheduled, as a bend glides. */
+  targets: Array<{ value: number; time: number; timeConstant: number }> = [];
+  setTargetAtTime(value: number, time: number, timeConstant: number): void {
+    this.targets.push({ value, time, timeConstant });
+  }
   cancelScheduledValues(_time: number): void {}
 }
 
@@ -43,6 +48,7 @@ class FakeNode implements AudioNodeLike {
 class FakeOscillator extends FakeNode implements OscillatorNodeLike {
   type: OscillatorType = 'sine';
   frequency = new FakeAudioParam(440);
+  detune = new FakeAudioParam(0);
   started = false;
   stopTime: number | undefined;
   start(): void {
@@ -92,6 +98,7 @@ class RenderedAudioParam extends FakeAudioParam {
 class FakeBufferSource extends FakeNode implements AudioBufferSourceNodeLike {
   buffer: AudioBufferLike | null = null;
   playbackRate = new RenderedAudioParam(1);
+  detune = new FakeAudioParam(0);
   loop = false;
   loopStart = 0;
   loopEnd = 0;
@@ -193,10 +200,15 @@ function voices(ctx: FakeAudioContext): Voice[] {
   }));
 }
 
+/** Bends glide towards the wheel with a time constant of about 4 ms. */
+const BEND_TIME_CONSTANT = 0.004;
+
 const isSounding = (v: Voice) => v.oscillators.every((o) => o.started && !o.stopped);
 const sounding = (ctx: FakeAudioContext) => voices(ctx).filter(isSounding);
 
 describe('TonePlayer', () => {
+  /** The voice's own fixed-gain node, which the Tone Player fades when it steals or retriggers. */
+  const fixedGainOf = (v: Voice) => (v.filter.connectedTo as FakeGain).connectedTo as FakeGain;
   let ctx: FakeAudioContext;
   let factoryOptions: AudioContextOptions[];
   let player: TonePlayer;
@@ -469,9 +481,163 @@ describe('TonePlayer', () => {
     });
   });
 
+  describe('the sustain pedal', () => {
+    /** The voice sounding `note`, by its dead-on unison oscillator. */
+    const voiceFor = (note: number) =>
+      voices(ctx).find((v) =>
+        v.oscillators.some((o) => Math.abs(o.frequency.value - midiToFrequency(note)) < 0.01),
+      )!;
+
+    it('defers a note-off while it is down, for Virtual Input and Device notes alike', () => {
+      player.setSustain(true);
+      player.noteOn('virtual', 60, 100);
+      player.noteOn('device', 64, 100);
+
+      player.noteOff('virtual', 60);
+      player.noteOff('device', 64);
+
+      expect(sounding(ctx)).toHaveLength(2);
+    });
+
+    it('holds a note pressed before it went down and released after', () => {
+      player.noteOn('virtual', 60, 100);
+      player.setSustain(true);
+
+      player.noteOff('virtual', 60);
+
+      expect(sounding(ctx)).toHaveLength(1);
+    });
+
+    it('lifting it releases every note no key still holds, with its usual tail', () => {
+      player.setSustain(true);
+      player.noteOn('virtual', 60, 100);
+      player.noteOn('device', 64, 100);
+      player.noteOff('virtual', 60);
+      ctx.currentTime = 1;
+
+      player.setSustain(false);
+
+      for (const osc of voiceFor(60).oscillators) expect(osc.stopTime).toBeCloseTo(1.2, 5);
+      expect(isSounding(voiceFor(64))).toBe(true); // the Device key is still down
+      player.noteOff('device', 64);
+      expect(sounding(ctx)).toHaveLength(0);
+    });
+
+    it('pressing a note it holds retriggers it: the old voice fades over 20 ms, a fresh one starts', () => {
+      player.setSustain(true);
+      player.noteOn('virtual', 60, 100);
+      player.noteOff('virtual', 60);
+      ctx.currentTime = 1;
+
+      player.noteOn('device', 60, 100);
+
+      const [old, fresh] = voices(ctx);
+      for (const osc of old.oscillators) expect(osc.stopTime).toBeCloseTo(1.02, 5);
+      expect(fixedGainOf(old).gain.ramps.at(-1)).toEqual({
+        value: 0,
+        time: expect.closeTo(1.02, 5),
+      });
+      expect(isSounding(fresh)).toBe(true);
+    });
+
+    it('a retriggered note is key-held again: lifting the pedal leaves it sounding', () => {
+      player.setSustain(true);
+      player.noteOn('virtual', 60, 100);
+      player.noteOff('virtual', 60);
+      player.noteOn('virtual', 60, 100);
+
+      player.setSustain(false);
+
+      expect(sounding(ctx)).toHaveLength(1);
+    });
+
+    it('releaseSource() under it leaves the notes held by the pedal, as their note-offs would', () => {
+      player.setSustain(true);
+      player.noteOn('virtual', 60, 100);
+
+      player.releaseSource('virtual'); // focus loss
+
+      expect(sounding(ctx)).toHaveLength(1);
+      player.setSustain(false);
+      expect(sounding(ctx)).toHaveLength(0);
+    });
+
+    it('resetDeviceControls() lifts it, releasing the notes it held', () => {
+      player.setSustain(true);
+      player.noteOn('virtual', 60, 100);
+      player.noteOff('virtual', 60);
+
+      player.resetDeviceControls();
+
+      expect(sounding(ctx)).toHaveLength(0);
+      player.noteOn('virtual', 62, 100);
+      player.noteOff('virtual', 62);
+      expect(isSounding(voiceFor(62))).toBe(false); // the pedal stays up
+    });
+  });
+
+  describe('pitch bend', () => {
+    it('bends every oscillator of a held voice by up to ±2 semitones, gliding with a 4 ms time constant', () => {
+      player.noteOn('virtual', 60, 100);
+      ctx.currentTime = 1;
+
+      player.setPitchBend(1);
+      const [voice] = voices(ctx);
+      for (const osc of voice.oscillators) {
+        expect(osc.detune.targets.at(-1)).toEqual({
+          value: 200,
+          time: 1,
+          timeConstant: BEND_TIME_CONSTANT,
+        });
+      }
+
+      player.setPitchBend(-0.5);
+      for (const osc of voice.oscillators) expect(osc.detune.targets.at(-1)?.value).toBe(-100);
+    });
+
+    it('bends pedal-held and releasing voices too, Virtual Input ones included', () => {
+      player.noteOn('virtual', 60, 100);
+      player.noteOff('virtual', 60); // releasing
+      player.setSustain(true);
+      player.noteOn('virtual', 64, 100);
+      player.noteOff('virtual', 64); // pedal-held
+      player.noteOn('device', 67, 100); // key-held
+      ctx.currentTime = 0.05; // the release tail still sounding
+
+      player.setPitchBend(1);
+
+      expect(voices(ctx)).toHaveLength(3);
+      for (const voice of voices(ctx)) {
+        for (const osc of voice.oscillators) expect(osc.detune.targets.at(-1)?.value).toBe(200);
+      }
+    });
+
+    it('starts a note bent, with no glide, while the wheel is off-centre', () => {
+      player.setPitchBend(0.5); // before any context exists
+
+      player.noteOn('virtual', 60, 100);
+
+      const [voice] = voices(ctx);
+      for (const osc of voice.oscillators) {
+        expect(osc.detune.value).toBe(100);
+        expect(osc.detune.targets).toHaveLength(0);
+      }
+    });
+
+    it('resetDeviceControls() centres it', () => {
+      player.noteOn('virtual', 60, 100);
+      player.setPitchBend(1);
+
+      player.resetDeviceControls();
+      player.noteOn('virtual', 64, 100);
+
+      const [held, fresh] = voices(ctx);
+      for (const osc of held.oscillators) expect(osc.detune.targets.at(-1)?.value).toBe(0);
+      for (const osc of fresh.oscillators) expect(osc.detune.value).toBe(0);
+    });
+  });
+
   describe('the 32-voice cap', () => {
-    /** The voice's own fixed-gain node, which the Tone Player fades when it steals. */
-    const fixedGainOf = (v: Voice) => (v.filter.connectedTo as FakeGain).connectedTo as FakeGain;
     const voiceFor = (note: number) =>
       voices(ctx).find((v) =>
         v.oscillators.some((o) => Math.abs(o.frequency.value - midiToFrequency(note)) < 0.01),
@@ -513,6 +679,24 @@ describe('TonePlayer', () => {
 
       expect(fixedGainOf(voiceFor(70)).gain.ramps.at(-1)?.value).toBe(0);
       expect(fixedGainOf(voiceFor(71)).gain.ramps).toHaveLength(0);
+      expect(fixedGainOf(voiceFor(40)).gain.ramps).toHaveLength(0);
+    });
+
+    it('steals a pedal-held voice after every release tail, before any key-held voice, oldest first', () => {
+      holdNotes(40, 32);
+      player.noteOff('virtual', 70); // a release tail
+      player.setSustain(true);
+      player.noteOff('virtual', 50); // two pedal-held voices
+      player.noteOff('virtual', 51);
+      ctx.currentTime = 0.1; // the tail still sounding
+
+      player.noteOn('virtual', 90, 100);
+      expect(fixedGainOf(voiceFor(70)).gain.ramps.at(-1)?.value).toBe(0);
+      expect(fixedGainOf(voiceFor(50)).gain.ramps).toHaveLength(0);
+
+      player.noteOn('virtual', 91, 100);
+      expect(fixedGainOf(voiceFor(50)).gain.ramps.at(-1)?.value).toBe(0);
+      expect(fixedGainOf(voiceFor(51)).gain.ramps).toHaveLength(0);
       expect(fixedGainOf(voiceFor(40)).gain.ramps).toHaveLength(0);
     });
 
@@ -746,6 +930,19 @@ describe('TonePlayer with a sampled Tone', () => {
       expect(ctx.bufferSources).toHaveLength(0);
     });
 
+    it('keep a pedal-held note sounding when it is pressed again where the new Tone has no sound', () => {
+      player.setSustain(true);
+      player.noteOn('virtual', 30, 100); // Warm Analog sounds everywhere
+      player.noteOff('virtual', 30);
+      selectSampled([region({ keyLo: 36, keyHi: 83 })]);
+
+      player.noteOn('device', 30, 100);
+
+      expect(sounding(ctx)).toHaveLength(1); // no silent retrigger: the pedal still holds it
+      player.setSustain(false);
+      expect(sounding(ctx)).toHaveLength(0);
+    });
+
     it('stay silent outside every region, taking no voice', () => {
       selectSampled([region({ keyLo: 36, keyHi: 83 })]);
 
@@ -850,6 +1047,54 @@ describe('TonePlayer with a sampled Tone', () => {
       player.silenceAll();
 
       for (const s of ctx.bufferSources) expect(s.stopTime).toBeCloseTo(0.02, 6);
+    });
+  });
+
+  describe('pitch bend', () => {
+    it('bends every sustaining source, gliding with a 4 ms time constant', () => {
+      selectSampled([region(), region({ file: 'C4-layer.mp3', pan: 0.5 })]);
+      player.noteOn('virtual', 60, 100);
+      ctx.currentTime = 1;
+
+      player.setPitchBend(-1);
+
+      for (const source of ctx.bufferSources) {
+        expect(source.detune.targets.at(-1)).toEqual({
+          value: -200,
+          time: 1,
+          timeConstant: BEND_TIME_CONSTANT,
+        });
+      }
+    });
+
+    it('starts a note, and the release sample it plays, bent while the wheel is off-centre', () => {
+      selectSampled([region(), region({ file: 'C4-release.mp3', release: true })]);
+      player.setPitchBend(0.5);
+      player.noteOn('virtual', 60, 100);
+
+      player.noteOff('virtual', 60);
+
+      expect(sourcesOf('C4.mp3')[0].detune.value).toBe(100);
+      const [tail] = sourcesOf('C4-release.mp3');
+      expect(tail.detune.value).toBe(100);
+      player.setPitchBend(0);
+      expect(tail.detune.targets.at(-1)?.value).toBe(0); // a releasing voice follows the wheel
+    });
+
+    it('counts a release sample bent down as a tail for as long as it plays slower', () => {
+      selectSampled([region(), region({ file: 'C4-release.mp3', release: true })], {
+        'C4-release.mp3': 1,
+      });
+      // Bent a whole tone down, the 1 s release sample plays at 2^(-2/12) speed: about 1.12 s.
+      player.setPitchBend(-1);
+      player.noteOn('virtual', 60, 100);
+      player.noteOff('virtual', 60);
+      ctx.currentTime = 1.1;
+
+      for (let note = 40; note < 72; note += 1) player.noteOn('virtual', note, 100);
+
+      // Still counted, so the 33rd voice stole the tail rather than a held note.
+      expect(sourcesOf('C4-release.mp3')[0].stopTime).toBeCloseTo(1.12, 6);
     });
   });
 

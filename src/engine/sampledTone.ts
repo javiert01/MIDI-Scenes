@@ -31,7 +31,10 @@ function velocityScale(tracking: number, velocity: number): number {
   return 1 - tracking + tracking * (velocity / 127) ** 2;
 }
 
-/** How fast to play a region's sample so it sounds `note`: from its keycentre, plus its `tune` in cents. */
+/**
+ * How fast to play a region's sample so it sounds `note`: from its keycentre,
+ * plus its `tune` in cents. Bend goes on the source's `detune`, not in here.
+ */
 function playbackRate(region: ToneRegion, note: number): number {
   return 2 ** (((note - region.keycentre) * 100 + region.tune) / 1200);
 }
@@ -50,18 +53,20 @@ export function createSampledTone(definition: ToneDefinition, decoded: DecodedTo
         velocity <= r.velHi,
     );
 
-  /** Starts `region`'s sample at `note`'s pitch, through its pan and level, into `destination`. */
+  /** Starts `region`'s sample at `note`'s pitch, bent `bendCents`, through its pan and level, into `destination`. */
   function play(
     ctx: AudioContextLike,
     region: ToneRegion,
     note: number,
     velocity: number,
+    bendCents: number,
     destination: AudioNodeLike,
   ): AudioBufferSourceNodeLike {
     const now = ctx.currentTime;
     const source = ctx.createBufferSource();
     source.buffer = decoded.buffers.get(region.file) ?? null;
     source.playbackRate.setValueAtTime(playbackRate(region, note), now);
+    source.detune.setValueAtTime(bendCents, now);
     if (region.loop) {
       source.loop = true;
       source.loopStart = region.loop.start;
@@ -85,16 +90,18 @@ export function createSampledTone(definition: ToneDefinition, decoded: DecodedTo
     id: definition.id,
     gainDb: definition.gainDb,
     sounds: (note, velocity) => matching(note, velocity, false).length > 0,
-    startVoice(ctx, note, velocity, output): ToneVoice {
+    startVoice(ctx, note, velocity, output, bendCents): ToneVoice {
       const now = ctx.currentTime;
       const envelope = ctx.createGain();
       envelope.gain.setValueAtTime(0, now);
       envelope.gain.linearRampToValueAtTime(1, now + attackSeconds);
       envelope.connect(output);
       const sustaining = matching(note, velocity, false).map((region) =>
-        play(ctx, region, note, velocity, envelope),
+        play(ctx, region, note, velocity, bendCents, envelope),
       );
       const tails: AudioBufferSourceNodeLike[] = [];
+      /** Where the wheel last sent the voice, so release samples start there. */
+      let cents = bendCents;
 
       const stop = (time: number) => {
         for (const source of [...sustaining, ...tails]) source.stop(time);
@@ -112,13 +119,21 @@ export function createSampledTone(definition: ToneDefinition, decoded: DecodedTo
           // the longest of them: it counts as a release tail until then.
           let endTime = fadeEnd;
           for (const region of matching(note, velocity, true)) {
-            const tail = play(ctx, region, note, velocity, output);
+            const tail = play(ctx, region, note, velocity, cents, output);
             tails.push(tail);
-            // Computed, not read back: a real param shows a scheduled value only once rendered.
-            const duration = (tail.buffer?.duration ?? 0) / playbackRate(region, note);
+            // Computed, not read back: a real param shows a scheduled value only once
+            // rendered. A later bend moves it a little; the bend at release is near enough.
+            const rate = playbackRate(region, note) * 2 ** (cents / 1200);
+            const duration = (tail.buffer?.duration ?? 0) / rate;
             endTime = Math.max(endTime, time + duration);
           }
           return endTime;
+        },
+        bend(target, time, timeConstant) {
+          cents = target;
+          for (const source of [...sustaining, ...tails]) {
+            source.detune.setTargetAtTime(target, time, timeConstant);
+          }
         },
         stop,
       };

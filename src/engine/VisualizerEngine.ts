@@ -4,7 +4,7 @@ import type { NoteEvent, ParamSpec, ParamValue, Scene, SceneContext } from './sc
 import { SceneRegistry } from './SceneRegistry';
 import { CRYSTAL_COLORS, CrystalField, hexToRgb } from './crystals';
 import { type PianoBand, drawPianoPreview, noteAtCanvasPoint } from './pianoPreview';
-import { noteNumberToName, parseNoteMessage } from './midi';
+import { noteNumberToName, parseMidiMessage } from './midi';
 import { clampOctaveShift, noteForKey, octaveLabel, octaveShiftForKey } from './virtualKeyboard';
 import type { MidiAccessLike, MidiFactory } from './midiTypes';
 import { defaultMidiFactory } from './webMidiAdapter';
@@ -882,6 +882,8 @@ export class VisualizerEngine {
       // A sampled Tone picked or restored while sound was Off loads now.
       if (this.toneStatusState === 'idle') this.startToneLoad(toneById(this.toneIdState));
     }
+    // With Device sound off, nothing would ever lift the pedal or centre the wheel.
+    if (device === 'off') this.tonePlayer.resetDeviceControls();
     return {
       changed: virtual !== 'same' || device !== 'same',
       turnedOn: virtual === 'on' || device === 'on',
@@ -1174,9 +1176,13 @@ export class VisualizerEngine {
     this.unsubscribeMessage = this.midiAccess.onMessage(id, (data) => this.handleRawMessage(data));
   }
 
-  /** Ends every note the outgoing Device still holds, and its voices, as its note-offs will never arrive. */
+  /**
+   * Ends every note the outgoing Device still holds, and its voices, as its
+   * note-offs will never arrive; its pedal goes up and its bend wheel centres.
+   */
   private releaseDeviceNotes(): void {
     this.tonePlayer.releaseSource('device');
+    this.tonePlayer.resetDeviceControls();
     this.releaseSource('device');
   }
 
@@ -1189,8 +1195,19 @@ export class VisualizerEngine {
   }
 
   private handleRawMessage(data: number[]): void {
-    const parsed = parseNoteMessage(data);
+    const parsed = parseMidiMessage(data);
     if (!parsed) return;
+    // The sustain pedal and bend wheel shape the sound and nothing else: they
+    // reach the Tone Player, while Device sound is on, and never the dispatch
+    // core, so a Crystal still ends at key-up, not pedal-up (ADR-0009).
+    if (parsed.type === 'sustain') {
+      if (this.deviceSoundEnabledState) this.tonePlayer.setSustain(parsed.down);
+      return;
+    }
+    if (parsed.type === 'pitchbend') {
+      if (this.deviceSoundEnabledState) this.tonePlayer.setPitchBend(parsed.amount);
+      return;
+    }
     const { event } = parsed;
     // Sounded before dispatch, so rendering never delays audio (ADR-0009). A
     // note-on sounds only while Device sound is on and audio is running: before
