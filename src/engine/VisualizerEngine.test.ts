@@ -1697,6 +1697,19 @@ describe('VisualizerEngine Crystals sidebar controls (T17)', () => {
   });
 });
 
+// Crystal-colour fills are exactly 3 args (r, g, b); Crystal's own fill call
+// always carries a 4th alpha arg, so this isolates a held Piano Preview key.
+function heldKeyFills(stub: StubP5): number[][] {
+  return stub.calls
+    .filter((c) => c.name === 'fill' && (c.args as number[]).length === 3)
+    .map((c) => c.args as number[])
+    .filter(
+      (args) =>
+        args.join(',') === CRYSTAL_COLORS.left.join(',') ||
+        args.join(',') === CRYSTAL_COLORS.right.join(','),
+    );
+}
+
 describe('VisualizerEngine Piano Preview Overlay (T18)', () => {
   const deviceA: MidiInputLike = { id: 'dev-a', name: 'Keyboard A' };
 
@@ -1706,19 +1719,6 @@ describe('VisualizerEngine Piano Preview Overlay (T18)', () => {
     return stub.calls
       .filter((c) => c.name === 'text')
       .map((c) => (c.args as unknown[])[0] as string);
-  }
-
-  // Crystal-colour fills are exactly 3 args (r, g, b); Crystal's own fill call
-  // always carries a 4th alpha arg, so this isolates a held Piano Preview key.
-  function heldKeyFills(stub: StubP5): number[][] {
-    return stub.calls
-      .filter((c) => c.name === 'fill' && (c.args as number[]).length === 3)
-      .map((c) => c.args as number[])
-      .filter(
-        (args) =>
-          args.join(',') === CRYSTAL_COLORS.left.join(',') ||
-          args.join(',') === CRYSTAL_COLORS.right.join(','),
-      );
   }
 
   async function setUpEngine(scenes: Scene[] = []) {
@@ -2339,16 +2339,22 @@ describe('VisualizerEngine Virtual Input (T19)', () => {
 // real Web Audio — mirroring the fakes in tonePlayer.test.ts.
 class SpyAudioParam implements AudioParamLike {
   value = 0;
+  /** Where the latest glide (a bend) is heading, if any. */
+  target: number | undefined;
   setValueAtTime(value: number): void {
     this.value = value;
   }
   linearRampToValueAtTime(): void {}
+  setTargetAtTime(target: number): void {
+    this.target = target;
+  }
   cancelScheduledValues(): void {}
 }
 
 class SpyOscillator implements OscillatorNodeLike {
   type: OscillatorType = 'sine';
   frequency = new SpyAudioParam();
+  detune = new SpyAudioParam();
   started = false;
   stopped = false;
   connect(): void {}
@@ -2381,6 +2387,7 @@ class SpyWaveShaper implements WaveShaperNodeLike {
 class SpyBufferSource implements AudioBufferSourceNodeLike {
   buffer: AudioBufferLike | null = null;
   playbackRate = new SpyAudioParam();
+  detune = new SpyAudioParam();
   loop = false;
   loopStart = 0;
   loopEnd = 0;
@@ -2977,6 +2984,166 @@ describe('VisualizerEngine Device sound', () => {
     expect(soundingVoices(audio).length).toBeGreaterThan(0);
     midi.emit('dev-a', [0x80, 50, 0]);
     expect(soundingVoices(audio)).toHaveLength(0);
+  });
+
+  describe('the sustain pedal and pitch bend', () => {
+    const PEDAL_DOWN = [0xb0, 64, 127];
+    const PEDAL_UP = [0xb0, 64, 0];
+    const BEND_UP = [0xe0, 0x7f, 0x7f]; // the wheel fully up: +2 semitones
+    /** Where each oscillator's latest bend glide is heading, in cents. */
+    const bendTargets = (audio: SpyAudioContext) => audio.oscillators.map((o) => o.detune.target);
+
+    it('the pedal holds a Device note past its key-up, until the pedal lifts', async () => {
+      const { engine, midi, audio } = await setUpEngine();
+      engine.setSoundGates({ soundEnabled: true, deviceSoundEnabled: true });
+
+      midi.emit('dev-a', PEDAL_DOWN);
+      midi.emit('dev-a', [0x90, 60, 100]);
+      midi.emit('dev-a', [0x80, 60, 0]);
+      expect(soundingVoices(audio).length).toBeGreaterThan(0);
+
+      midi.emit('dev-a', PEDAL_UP);
+      expect(soundingVoices(audio)).toHaveLength(0);
+    });
+
+    it('the pedal holds Virtual Input notes too', async () => {
+      const { engine, midi, audio } = await setUpEngine();
+      engine.setSoundGates({ soundEnabled: true, deviceSoundEnabled: true });
+      engine.setVirtualInputEnabled(true);
+
+      midi.emit('dev-a', PEDAL_DOWN);
+      keydown('KeyA');
+      keyup('KeyA');
+
+      expect(soundingVoices(audio).length).toBeGreaterThan(0);
+    });
+
+    it('the wheel bends sounding voices, Virtual Input ones included', async () => {
+      const { engine, midi, audio } = await setUpEngine();
+      engine.setSoundGates({ soundEnabled: true, deviceSoundEnabled: true });
+      engine.setVirtualInputEnabled(true);
+      midi.emit('dev-a', [0x90, 50, 100]);
+      keydown('KeyA');
+
+      midi.emit('dev-a', BEND_UP);
+
+      expect(audio.oscillators).not.toHaveLength(0);
+      expect(new Set(bendTargets(audio))).toEqual(new Set([200]));
+    });
+
+    it('neither reaches the Tone Player while Device sound is off', async () => {
+      const { engine, midi, audio } = await setUpEngine();
+      engine.setSoundGates({ soundEnabled: true, deviceSoundEnabled: false });
+      engine.setVirtualInputEnabled(true);
+
+      midi.emit('dev-a', PEDAL_DOWN);
+      midi.emit('dev-a', BEND_UP);
+      keydown('KeyA');
+      keyup('KeyA');
+
+      expect(soundingVoices(audio)).toHaveLength(0); // the pedal held nothing
+      for (const osc of audio.oscillators) {
+        expect(osc.detune.value).toBe(0); // started unbent
+        expect(osc.detune.target).toBeUndefined();
+      }
+    });
+
+    it('never reach the visuals: Scenes, Crystals, the Piano Preview and subscribers see only the keys', async () => {
+      const scene = new FakeScene('a', 'Scene A');
+      const { engine, midi, stub } = await setUpEngine({ scenes: [scene] });
+      engine.setSoundGates({ soundEnabled: true, deviceSoundEnabled: true });
+      midi.emit('dev-a', PEDAL_DOWN);
+      midi.emit('dev-a', [0x90, 60, 100]);
+      midi.emit('dev-a', [0x80, 60, 0]);
+      const tick = engine.activityTick;
+      const listener = vi.fn();
+      engine.subscribe(listener);
+
+      midi.emit('dev-a', BEND_UP);
+      midi.emit('dev-a', PEDAL_UP);
+      midi.emit('dev-a', PEDAL_DOWN);
+
+      expect(scene.onNoteOn).toHaveBeenCalledTimes(1);
+      expect(scene.onNoteOff).toHaveBeenCalledTimes(1); // at key-up, not pedal-up
+      expect(engine.activityTick).toBe(tick);
+      expect(listener).not.toHaveBeenCalled();
+      stub.calls = [];
+      stub.draw?.();
+      const ctx = scene.draw.mock.calls.at(-1)![0] as SceneContext;
+      expect(ctx.crystals.filter((c) => c.held)).toHaveLength(0); // the Crystal ended at key-up
+      expect(heldKeyFills(stub)).toHaveLength(0); // no Piano Preview key held by the pedal
+    });
+
+    /** Holds a Virtual Input note on the pedal, with the wheel fully up. */
+    async function setUpPedalAndBend() {
+      const setup = await setUpEngine();
+      setup.engine.setSoundGates({ soundEnabled: true, deviceSoundEnabled: true });
+      setup.engine.setVirtualInputEnabled(true);
+      setup.midi.emit('dev-a', PEDAL_DOWN);
+      setup.midi.emit('dev-a', BEND_UP);
+      keydown('KeyA');
+      keyup('KeyA');
+      return setup;
+    }
+
+    it('lifts the pedal and centres the bend when the Device is unplugged', async () => {
+      const { midi, audio } = await setUpPedalAndBend();
+
+      midi.setInputs([otherDevice]);
+
+      expect(soundingVoices(audio)).toHaveLength(0);
+      expect(new Set(bendTargets(audio))).toEqual(new Set([0]));
+    });
+
+    it('lifts the pedal and centres the bend when switching to another Device', async () => {
+      const { engine, audio } = await setUpPedalAndBend();
+
+      engine.selectDevice('dev-b');
+
+      expect(soundingVoices(audio)).toHaveLength(0);
+      expect(new Set(bendTargets(audio))).toEqual(new Set([0]));
+    });
+
+    it('lifts the pedal and centres the bend when Device sound turns off', async () => {
+      const { engine, audio } = await setUpPedalAndBend();
+
+      engine.setSoundGates({ soundEnabled: true, deviceSoundEnabled: false });
+
+      expect(soundingVoices(audio)).toHaveLength(0);
+      expect(new Set(bendTargets(audio))).toEqual(new Set([0]));
+      keydown('KeyS');
+      keyup('KeyS');
+      expect(soundingVoices(audio)).toHaveLength(0); // the pedal stays up
+    });
+
+    it('lifts the pedal and centres the bend when sound goes Off', async () => {
+      const { engine, audio } = await setUpPedalAndBend();
+
+      engine.setSoundGates({ soundEnabled: false, deviceSoundEnabled: false });
+      engine.setSoundGates({ soundEnabled: true, deviceSoundEnabled: false });
+      keydown('KeyS');
+
+      const fresh = audio.oscillators.filter((o) => o.started && !o.stopped);
+      expect(fresh).not.toHaveLength(0);
+      for (const osc of fresh) expect(osc.detune.value).toBe(0); // starts unbent
+      keyup('KeyS');
+      expect(soundingVoices(audio)).toHaveLength(0); // and the pedal is up
+    });
+
+    it('keeps the pedal down and the bend on focus loss', async () => {
+      const { audio } = await setUpPedalAndBend();
+      keydown('KeyS');
+
+      window.dispatchEvent(new Event('blur'));
+
+      const heldByPedal = soundingVoices(audio);
+      expect(heldByPedal.length).toBeGreaterThan(0); // the pedal holds both notes
+      expect(bendTargets(audio).every((target) => target === undefined)).toBe(true); // no glide to centre
+      keydown('KeyD');
+      const fresh = soundingVoices(audio).filter((o) => !heldByPedal.includes(o));
+      expect(fresh).not.toHaveLength(0);
+      for (const osc of fresh) expect(osc.detune.value).toBe(200); // the wheel is still up
+    });
   });
 
   it('persists deviceSoundEnabled across serialize()/restore()', async () => {

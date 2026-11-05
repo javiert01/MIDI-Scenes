@@ -10,6 +10,8 @@ export interface AudioParamLike {
   value: number;
   setValueAtTime(value: number, startTime: number): void;
   linearRampToValueAtTime(value: number, endTime: number): void;
+  /** Approaches `target` exponentially from `startTime`, as a bend glides. */
+  setTargetAtTime(target: number, startTime: number, timeConstant: number): void;
   cancelScheduledValues(startTime: number): void;
 }
 
@@ -25,6 +27,8 @@ export interface GainNodeLike extends AudioNodeLike {
 export interface OscillatorNodeLike extends AudioNodeLike {
   type: OscillatorType;
   frequency: AudioParamLike;
+  /** Cents, on top of `frequency`: where pitch bend goes. */
+  detune: AudioParamLike;
   start(when?: number): void;
   stop(when?: number): void;
 }
@@ -52,6 +56,8 @@ export interface AudioBufferLike {
 export interface AudioBufferSourceNodeLike extends AudioNodeLike {
   buffer: AudioBufferLike | null;
   playbackRate: AudioParamLike;
+  /** Cents, on top of `playbackRate`: where pitch bend goes. */
+  detune: AudioParamLike;
   loop: boolean;
   /** Seconds into the buffer. */
   loopStart: number;

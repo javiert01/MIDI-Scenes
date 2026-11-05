@@ -29,6 +29,11 @@ export type SoundSource = 'virtual' | 'device';
 export interface ToneVoice {
   /** Starts the release tail at `time`; returns the time the voice falls silent. */
   release(time: number): number;
+  /**
+   * Glides the voice's pitch, release samples included, to `cents` off the note
+   * from `time`, approaching it exponentially with `timeConstant` seconds.
+   */
+  bend(cents: number, time: number, timeConstant: number): void;
   /** Stops the voice's sources at `time`, once the Tone Player's fade is done. */
   stop(time: number): void;
 }
@@ -43,20 +48,26 @@ export interface Tone {
   gainDb: number;
   /** Whether the Tone has a sound for `note` at `velocity`. Outside every region a sampled Tone has none. */
   sounds(note: number, velocity: number): boolean;
+  /** Starts a voice for `note`, already bent `bendCents` off it, with no glide. */
   startVoice(
     ctx: AudioContextLike,
     note: number,
     velocity: number,
     output: AudioNodeLike,
+    bendCents: number,
   ): ToneVoice;
 }
 
 /** Master gain: 1.0, so Warm Analog sounds exactly as loud as the Preview Synth did (ADR-0009). */
 const MASTER_GAIN = 1;
-/** Most voices sounding at once, counting key-held voices and release tails alike. */
+/** Most voices sounding at once, counting key-held voices, pedal-held voices and release tails alike. */
 const MAX_VOICES = 32;
-/** How fast a stolen or silenced voice fades out (seconds), fast but click-free. */
+/** How fast a stolen, silenced or retriggered voice fades out (seconds), fast but click-free. */
 const FADE_SECONDS = 0.02;
+/** A bend wheel at full travel bends ±2 semitones, for every Tone; RPN 0 can't change it. */
+const BEND_RANGE_CENTS = 200;
+/** Bends glide towards the wheel with this time constant (seconds), so they never step. */
+const BEND_TIME_CONSTANT = 0.004;
 
 /** The ceiling passes signal through unchanged below this level (about -6 dBFS). */
 const CEILING_KNEE = dbToGain(-6);
@@ -102,9 +113,11 @@ interface Voice {
   note: number;
   /** The Tone the voice sounds with, kept across a switch so the voice finishes on it. */
   tone: Tone;
-  /** The sources keeping the note down. Empty once the voice is releasing. */
+  /** The sources keeping the note down. Empty once the pedal holds it, or it is releasing. */
   holders: Set<SoundSource>;
-  /** When a releasing voice falls silent; Infinity while held. */
+  /** Whether the sustain pedal holds the note: its last key came up while the pedal was down. */
+  pedalHeld: boolean;
+  /** When a releasing voice falls silent; Infinity while held by a key or the pedal. */
   endTime: number;
   /** What the Tone built to sound the note. */
   sound: ToneVoice;
@@ -122,6 +135,10 @@ export class TonePlayer {
   private audioUnavailable = false;
   /** Every voice still sounding, held or releasing, oldest first. */
   private readonly voices: Voice[] = [];
+  /** Whether the Device's sustain pedal is down. */
+  private sustainDown = false;
+  /** Where the Device's bend wheel sits, in cents off every note. */
+  private bendCents = 0;
 
   constructor(options: TonePlayerOptions) {
     this.createAudioContext = options.createAudioContext ?? defaultAudioContextFactory;
@@ -178,8 +195,10 @@ export class TonePlayer {
   /**
    * Sounds `note` for `source`. `velocity` is the raw MIDI value, 1..127. A note
    * another source already holds gains a hold with no new attack; a note this
-   * source already holds retriggers, its old voice releasing. A note the Tone
-   * has no sound for stays silent and takes no voice.
+   * source already holds retriggers, its old voice releasing. A note the pedal
+   * holds retriggers too, its old voice fading out over 20 ms. A note the Tone
+   * has no sound for stays silent and takes no voice. A note starts bent as far
+   * as the wheel is.
    */
   noteOn(source: SoundSource, note: number, velocity: number): void {
     const ctx = this.start();
@@ -191,6 +210,8 @@ export class TonePlayer {
       return;
     }
     if (held) this.release(held, ctx.currentTime);
+    const pedalled = this.voices.find((v) => v.note === note && v.pedalHeld);
+    if (pedalled) this.fadeOut(pedalled, ctx.currentTime);
     const tone = this.tone;
     if (!tone.sounds(note, velocity)) return;
     this.makeRoom(ctx.currentTime);
@@ -202,17 +223,56 @@ export class TonePlayer {
       note,
       tone,
       holders: new Set([source]),
+      pedalHeld: false,
       endTime: Infinity,
-      sound: tone.startVoice(ctx, note, velocity, output),
+      sound: tone.startVoice(ctx, note, velocity, output, this.bendCents),
       output,
     });
   }
 
-  /** Lets go of `source`'s hold on `note`; the voice releases when its last holder lets go. */
+  /**
+   * Lets go of `source`'s hold on `note`. When its last holder lets go the voice
+   * releases, or, while the pedal is down, the pedal holds it.
+   */
   noteOff(source: SoundSource, note: number): void {
     const held = this.heldVoice(note);
     if (!held || !this.ctx || !held.holders.delete(source)) return;
-    if (held.holders.size === 0) this.release(held, this.ctx.currentTime);
+    if (held.holders.size > 0) return;
+    if (this.sustainDown) held.pedalHeld = true;
+    else this.release(held, this.ctx.currentTime);
+  }
+
+  /**
+   * Presses or lifts the Device's sustain pedal. It holds every source's notes,
+   * Virtual Input ones included, since it is one instrument. Lifting it releases
+   * every note no key still holds.
+   */
+  setSustain(down: boolean): void {
+    this.sustainDown = down;
+    if (down || !this.ctx) return;
+    const now = this.ctx.currentTime;
+    for (const voice of this.voices.filter((v) => v.pedalHeld)) this.release(voice, now);
+  }
+
+  /**
+   * Moves the Device's bend wheel, −1..1, bending every sounding voice (key-held,
+   * pedal-held and releasing, from every source) by up to ±2 semitones, gliding
+   * there with a 4 ms time constant. Notes started later start bent.
+   */
+  setPitchBend(amount: number): void {
+    this.bendCents = Math.max(-1, Math.min(1, amount)) * BEND_RANGE_CENTS;
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+    for (const voice of this.voices) voice.sound.bend(this.bendCents, now, BEND_TIME_CONSTANT);
+  }
+
+  /**
+   * Lifts the pedal and centres the bend wheel, as when the Device is unplugged
+   * or switched, or Device sound turns off, so neither stays stuck.
+   */
+  resetDeviceControls(): void {
+    this.setSustain(false);
+    this.setPitchBend(0);
   }
 
   /**
@@ -284,21 +344,25 @@ export class TonePlayer {
     return this.voices.find((v) => v.note === note && v.holders.size > 0);
   }
 
-  /** Starts a held voice's release tail. */
+  /** Starts a key-held or pedal-held voice's release tail. */
   private release(voice: Voice, now: number): void {
     voice.holders.clear();
+    voice.pedalHeld = false;
     voice.endTime = voice.sound.release(now);
   }
 
   /**
    * Forgets release tails that have fallen silent, then, at the cap, steals the
-   * oldest voice: a release tail if there is one, otherwise a key-held voice.
-   * (Pedal-held voices will rank between the two once the pedal arrives.)
+   * oldest voice: a release tail if there is one, then a pedal-held voice, and
+   * only then a key-held one.
    */
   private makeRoom(now: number): void {
     this.forgetEnded(now);
     if (this.voices.length < MAX_VOICES) return;
-    const victim = this.voices.find((v) => v.holders.size === 0) ?? this.voices[0];
+    const victim =
+      this.voices.find((v) => v.holders.size === 0 && !v.pedalHeld) ??
+      this.voices.find((v) => v.pedalHeld) ??
+      this.voices[0];
     this.fadeOut(victim, now);
   }
 

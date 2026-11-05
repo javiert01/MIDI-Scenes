@@ -65,7 +65,12 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-function startVoice(ctx: AudioContextLike, note: number, output: AudioNodeLike): ToneVoice {
+function startVoice(
+  ctx: AudioContextLike,
+  note: number,
+  output: AudioNodeLike,
+  bendCents: number,
+): ToneVoice {
   const now = ctx.currentTime;
   const freq = midiToFrequency(note);
   const decayEnd = now + ATTACK_SECONDS + DECAY_SECONDS;
@@ -105,6 +110,7 @@ function startVoice(ctx: AudioContextLike, note: number, output: AudioNodeLike):
     const osc = ctx.createOscillator();
     osc.type = OSC_TYPE;
     osc.frequency.setValueAtTime(detune(freq, cents), now);
+    osc.detune.setValueAtTime(bendCents, now);
     osc.connect(unisonMix);
     osc.start(now);
     oscillators.push(osc);
@@ -117,6 +123,7 @@ function startVoice(ctx: AudioContextLike, note: number, output: AudioNodeLike):
   const sub = ctx.createOscillator();
   sub.type = SUB_OSC_TYPE;
   sub.frequency.setValueAtTime(freq / 2, now);
+  sub.detune.setValueAtTime(bendCents, now);
   sub.connect(subMix);
   sub.start(now);
   oscillators.push(sub);
@@ -134,6 +141,9 @@ function startVoice(ctx: AudioContextLike, note: number, output: AudioNodeLike):
       stop(endTime);
       return endTime;
     },
+    bend(cents, time, timeConstant) {
+      for (const osc of oscillators) osc.detune.setTargetAtTime(cents, time, timeConstant);
+    },
     stop,
   };
 }
@@ -145,5 +155,5 @@ export const WARM_ANALOG: Tone = {
   // Synthesised, so every note has a sound.
   sounds: () => true,
   // Ignores velocity, as the Preview Synth did.
-  startVoice: (ctx, note, _velocity, output) => startVoice(ctx, note, output),
+  startVoice: (ctx, note, _velocity, output, bendCents) => startVoice(ctx, note, output, bendCents),
 };
