@@ -14,21 +14,30 @@ import {
 } from '@/engine/audio';
 import { TonePlayer } from '@/engine/tonePlayer';
 import { createSampledTone } from '@/engine/sampledTone';
+import { VILLERA_LEAD } from '@/engine/villeraLead';
 import { WARM_ANALOG, midiToFrequency } from '@/engine/warmAnalog';
 import { toneById } from '@/tones/catalogue';
 import type { ToneRegion } from '@/tones/toneAssets';
 
 class FakeAudioParam implements AudioParamLike {
   value: number;
+  /** Each value set at a time, in order. */
+  sets: Array<{ value: number; time: number }> = [];
   ramps: Array<{ value: number; time: number }> = [];
+  /** Each exponential ramp scheduled, as a glide into a note. */
+  exponentialRamps: Array<{ value: number; time: number }> = [];
   constructor(value: number) {
     this.value = value;
   }
-  setValueAtTime(value: number, _time: number): void {
+  setValueAtTime(value: number, time: number): void {
     this.value = value;
+    this.sets.push({ value, time });
   }
   linearRampToValueAtTime(value: number, time: number): void {
     this.ramps.push({ value, time });
+  }
+  exponentialRampToValueAtTime(value: number, time: number): void {
+    this.exponentialRamps.push({ value, time });
   }
   /** Each exponential approach scheduled, as a bend glides. */
   targets: Array<{ value: number; time: number; timeConstant: number }> = [];
@@ -39,9 +48,13 @@ class FakeAudioParam implements AudioParamLike {
 }
 
 class FakeNode implements AudioNodeLike {
-  connectedTo: AudioNodeLike | null = null;
-  connect(destination: AudioNodeLike): void {
+  /** The node or param it last connected to. */
+  connectedTo: AudioNodeLike | AudioParamLike | null = null;
+  /** Everything it connected to, in order: a modulator feeds several params. */
+  connections: Array<AudioNodeLike | AudioParamLike> = [];
+  connect(destination: AudioNodeLike | AudioParamLike): void {
     this.connectedTo = destination;
+    this.connections.push(destination);
   }
 }
 
@@ -70,6 +83,7 @@ class FakeBiquadFilter extends FakeNode implements BiquadFilterNodeLike {
   type: BiquadFilterType = 'lowpass';
   frequency = new FakeAudioParam(350);
   Q = new FakeAudioParam(1);
+  gain = new FakeAudioParam(0);
 }
 
 class FakeWaveShaper extends FakeNode implements WaveShaperNodeLike {
@@ -176,9 +190,9 @@ class FakeAudioContext implements AudioContextLike {
 }
 
 /** The node chain from `node` to the end of the graph, following each `connect`. */
-function chainFrom(node: AudioNodeLike): AudioNodeLike[] {
-  const chain: AudioNodeLike[] = [];
-  let current: AudioNodeLike | null = node;
+function chainFrom(node: AudioNodeLike): Array<AudioNodeLike | AudioParamLike> {
+  const chain: Array<AudioNodeLike | AudioParamLike> = [];
+  let current: AudioNodeLike | AudioParamLike | null = node;
   while (current) {
     chain.push(current);
     current = (current as FakeNode).connectedTo ?? null;
@@ -1140,6 +1154,205 @@ describe('TonePlayer with a sampled Tone', () => {
       player.setTone(WARM_ANALOG);
 
       expect(player.heldToneIds).toEqual(['warm-analog']);
+    });
+  });
+});
+
+describe('TonePlayer with Villera Lead', () => {
+  let ctx: FakeAudioContext;
+  let player: TonePlayer;
+
+  /** One Villera Lead voice: its square and saw, its vibrato LFO, and the nodes they feed. */
+  function voiceAt(index = 0) {
+    const square = ctx.oscillators.filter((o) => o.type === 'square')[index];
+    const saw = ctx.oscillators.filter((o) => o.type === 'sawtooth')[index];
+    // Vibrato LFOs are the sines feeding no filter, only a depth gain into detunes.
+    const lfo = ctx.oscillators.filter(
+      (o) => o.type === 'sine' && !chainFrom(o).some((n) => n instanceof FakeBiquadFilter),
+    )[index];
+    // square -> its mix -> high-pass -> peak -> low-pass -> envelope -> fixed gain -> master.
+    const [, squareMix, highPass, peak, lowPass, envelope, fixedGain, master] = chainFrom(square);
+    return {
+      square,
+      saw,
+      lfo,
+      squareMix: squareMix as FakeGain,
+      sawMix: saw.connectedTo as FakeGain,
+      highPass: highPass as FakeBiquadFilter,
+      peak: peak as FakeBiquadFilter,
+      lowPass: lowPass as FakeBiquadFilter,
+      envelope: envelope as FakeGain,
+      fixedGain: fixedGain as FakeGain,
+      master: master as FakeGain,
+      depth: lfo.connectedTo as FakeGain,
+      oscillators: [square, saw, lfo],
+    };
+  }
+
+  beforeEach(() => {
+    ctx = new FakeAudioContext();
+    player = new TonePlayer({ tone: VILLERA_LEAD, createAudioContext: () => ctx });
+  });
+
+  it("is the catalogue's villera-lead, at its fixed gain of -3 dB", () => {
+    expect(VILLERA_LEAD.id).toBe('villera-lead');
+    expect(VILLERA_LEAD.gainDb).toBe(-3);
+
+    player.noteOn('virtual', 60, 100);
+
+    expect(voiceAt().fixedGain.gain.value).toBeCloseTo(dbToGain(-3), 6);
+  });
+
+  it('sounds every note: synthesised, with no download', () => {
+    for (const note of [0, 21, 60, 108, 127]) expect(VILLERA_LEAD.sounds(note, 64)).toBe(true);
+  });
+
+  it('sounds a square plus a saw 6 cents sharp, at 0.5 and 0.35', () => {
+    player.noteOn('virtual', 60, 100);
+
+    const { square, saw, squareMix, sawMix } = voiceAt();
+    const c4 = midiToFrequency(60);
+    expect(ctx.oscillators).toHaveLength(3); // square, saw and the vibrato LFO
+    expect(square.started && saw.started).toBe(true);
+    expect(square.frequency.exponentialRamps.at(-1)?.value).toBeCloseTo(c4, 6);
+    expect(saw.frequency.exponentialRamps.at(-1)?.value).toBeCloseTo(c4 * 2 ** (6 / 1200), 6);
+    expect(squareMix.gain.value).toBe(0.5);
+    expect(sawMix.gain.value).toBe(0.35);
+    expect(sawMix.connectedTo).toBe(squareMix.connectedTo); // both into the same filters
+  });
+
+  it('filters through a 320 Hz high-pass, a 1.7 kHz peak (+11 dB, Q 3.2), then an 11 kHz low-pass', () => {
+    player.noteOn('virtual', 60, 100);
+
+    const { highPass, peak, lowPass, master } = voiceAt();
+    expect(highPass).toMatchObject({ type: 'highpass' });
+    expect(highPass.frequency.value).toBe(320);
+    expect(highPass.Q.value).toBe(0.7);
+    expect(peak).toMatchObject({ type: 'peaking' });
+    expect(peak.frequency.value).toBe(1700);
+    expect(peak.Q.value).toBe(3.2);
+    expect(peak.gain.value).toBe(11);
+    expect(lowPass).toMatchObject({ type: 'lowpass' });
+    expect(lowPass.frequency.value).toBe(11000);
+    expect(lowPass.Q.value).toBe(0.8);
+    expect(ctx.filters).toHaveLength(3); // no second formant
+    expect(master.gain.value).toBe(1);
+  });
+
+  it('glides into each note from a semitone below, over 40 ms', () => {
+    ctx.currentTime = 2;
+    player.noteOn('virtual', 69, 100);
+
+    const { square, saw } = voiceAt();
+    const sharp = 2 ** (6 / 1200);
+    expect(square.frequency.sets).toEqual([{ value: 440 * 2 ** (-1 / 12), time: 2 }]);
+    expect(square.frequency.exponentialRamps).toEqual([{ value: 440, time: 2.04 }]);
+    expect(saw.frequency.sets[0].value).toBeCloseTo(440 * sharp * 2 ** (-1 / 12), 6);
+    expect(saw.frequency.exponentialRamps[0].value).toBeCloseTo(440 * sharp, 6);
+    expect(saw.frequency.exponentialRamps[0].time).toBe(2.04);
+  });
+
+  it('brings in a 5.6 Hz, 18-cent vibrato on both oscillators, after 0.22 s, over 0.35 s', () => {
+    ctx.currentTime = 1;
+    player.noteOn('virtual', 60, 100);
+
+    const { lfo, depth, square, saw } = voiceAt();
+    expect(lfo.type).toBe('sine');
+    expect(lfo.frequency.value).toBe(5.6);
+    expect(lfo.started).toBe(true);
+    expect(depth.connections).toEqual([square.detune, saw.detune]);
+    expect(depth.gain.sets).toEqual([
+      { value: 0, time: 1 },
+      { value: 0, time: 1.22 },
+    ]);
+    expect(depth.gain.ramps).toHaveLength(1);
+    expect(depth.gain.ramps[0].value).toBe(18);
+    expect(depth.gain.ramps[0].time).toBeCloseTo(1.57, 9);
+  });
+
+  it('reaches a 0.11 peak in 6 ms, scaled by 0.55 + 0.45 * v/127, then settles to 85% by 0.12 s', () => {
+    player.noteOn('virtual', 48, 1);
+    player.noteOn('virtual', 60, 64);
+    player.noteOn('virtual', 72, 127);
+
+    [1, 64, 127].forEach((velocity, i) => {
+      const { envelope } = voiceAt(i);
+      const level = 0.11 * (0.55 + 0.45 * (velocity / 127));
+      expect(envelope.gain.sets).toEqual([{ value: 0, time: 0 }]);
+      expect(envelope.gain.ramps).toHaveLength(2);
+      expect(envelope.gain.ramps[0].value).toBeCloseTo(level, 9);
+      expect(envelope.gain.ramps[0].time).toBeCloseTo(0.006, 9);
+      expect(envelope.gain.ramps[1].value).toBeCloseTo(level * 0.85, 9);
+      expect(envelope.gain.ramps[1].time).toBeCloseTo(0.12, 9);
+    });
+  });
+
+  it('fades a released note over its 0.12 s release, then stops every oscillator, vibrato included', () => {
+    player.noteOn('virtual', 60, 100);
+    ctx.currentTime = 1;
+
+    player.noteOff('virtual', 60);
+
+    const { envelope, oscillators } = voiceAt();
+    expect(envelope.gain.ramps.at(-1)?.value).toBe(0);
+    expect(envelope.gain.ramps.at(-1)?.time).toBeCloseTo(1.12, 9);
+    for (const osc of oscillators) expect(osc.stopTime).toBeCloseTo(1.12, 9);
+  });
+
+  it('stops every oscillator, vibrato included, when silenced', () => {
+    player.noteOn('virtual', 60, 100);
+
+    player.silenceAll();
+
+    for (const osc of voiceAt().oscillators) expect(osc.stopTime).toBeCloseTo(0.02, 9);
+  });
+
+  describe('pitch bend', () => {
+    it('bends both oscillators by up to ±2 semitones, gliding with a 4 ms time constant', () => {
+      player.noteOn('virtual', 60, 100);
+      ctx.currentTime = 1;
+
+      player.setPitchBend(1);
+
+      const { square, saw, lfo } = voiceAt();
+      for (const osc of [square, saw]) {
+        expect(osc.detune.targets).toEqual([
+          { value: 200, time: 1, timeConstant: BEND_TIME_CONSTANT },
+        ]);
+      }
+      // The saw keeps its 6 cents in its frequency, so a bend never loses it.
+      expect(saw.frequency.exponentialRamps[0].value).toBeCloseTo(
+        midiToFrequency(60) * 2 ** (6 / 1200),
+        6,
+      );
+      // The vibrato's rate doesn't bend.
+      expect(lfo.detune.targets).toHaveLength(0);
+
+      player.setPitchBend(-0.5);
+      for (const osc of [square, saw]) expect(osc.detune.targets.at(-1)?.value).toBe(-100);
+    });
+
+    it('bends a releasing voice too', () => {
+      player.noteOn('virtual', 60, 100);
+      player.noteOff('virtual', 60);
+      ctx.currentTime = 0.05;
+
+      player.setPitchBend(1);
+
+      const { square, saw } = voiceAt();
+      for (const osc of [square, saw]) expect(osc.detune.targets.at(-1)?.value).toBe(200);
+    });
+
+    it('starts a note bent while the wheel is off-centre', () => {
+      player.setPitchBend(0.5);
+
+      player.noteOn('device', 60, 100);
+
+      const { square, saw } = voiceAt();
+      for (const osc of [square, saw]) {
+        expect(osc.detune.value).toBe(100);
+        expect(osc.detune.targets).toHaveLength(0);
+      }
     });
   });
 });

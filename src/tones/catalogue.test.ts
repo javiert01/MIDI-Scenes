@@ -28,6 +28,24 @@ describe('the Tone catalogue', () => {
     });
   });
 
+  it('holds the synthesised Villera Lead under Cumbia, with its own velocity response and no download', () => {
+    expect(toneById('villera-lead')).toEqual({
+      id: 'villera-lead',
+      name: 'Villera Lead',
+      genre: 'Cumbia',
+      kind: 'synth',
+      gainDb: -3,
+      releaseSeconds: 0.12,
+      attackSeconds: 0.006,
+      velocityTracking: 0.45,
+    });
+  });
+
+  it("keeps Villera Lead's saved id whatever it is called: the name is only a label", () => {
+    const villera = TONES.find((t) => t.name === 'Villera Lead');
+    expect(villera?.id).toBe('villera-lead');
+  });
+
   it('defaults to Warm Analog', () => {
     expect(DEFAULT_TONE_ID).toBe('warm-analog');
   });
@@ -48,7 +66,15 @@ describe('toneMenu', () => {
   it('lists Warm Analog first, then one group per Genre that has Tones', () => {
     expect(toneMenu()).toEqual({
       first: { id: 'warm-analog', name: 'Warm Analog' },
-      groups: [{ genre: 'Cumbia', tones: [{ id: 'accordion', name: 'Accordion' }] }],
+      groups: [
+        {
+          genre: 'Cumbia',
+          tones: [
+            { id: 'accordion', name: 'Accordion' },
+            { id: 'villera-lead', name: 'Villera Lead' },
+          ],
+        },
+      ],
     });
   });
 

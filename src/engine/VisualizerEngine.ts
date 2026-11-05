@@ -10,6 +10,7 @@ import type { MidiAccessLike, MidiFactory } from './midiTypes';
 import { defaultMidiFactory } from './webMidiAdapter';
 import type { AudioContextFactory } from './audio';
 import { type Tone, TonePlayer } from './tonePlayer';
+import { VILLERA_LEAD } from './villeraLead';
 import { WARM_ANALOG } from './warmAnalog';
 import { createSampledTone } from './sampledTone';
 import { DEFAULT_TONE_ID, type ToneDefinition, toneById } from '@/tones/catalogue';
@@ -71,7 +72,10 @@ const DEFAULT_SOUND_ENABLED = true;
 const DEFAULT_DEVICE_SOUND_ENABLED = false;
 
 /** Synthesised Tones, by id. They need no download, so they're ready the moment they're picked. */
-const SYNTH_TONES: Record<string, Tone> = { [WARM_ANALOG.id]: WARM_ANALOG };
+const SYNTH_TONES: Record<string, Tone> = {
+  [WARM_ANALOG.id]: WARM_ANALOG,
+  [VILLERA_LEAD.id]: VILLERA_LEAD,
+};
 
 /**
  * Where the selected Tone stands. A synthesised Tone is always `ready`. A sampled

@@ -75,11 +75,27 @@ describe('the Tone dropdown', () => {
     expect(describeSoundStrip(state({ soundEnabled: false })).tonePicker).toBeNull();
   });
 
-  it('lists Warm Analog first, then each Genre as a group: only Cumbia, with the Accordion, for now', () => {
+  it('lists Warm Analog first, then each Genre as a group: only Cumbia, with the Accordion and Villera Lead, for now', () => {
     expect(describeSoundStrip(state()).tonePicker?.menu).toEqual({
       first: { id: 'warm-analog', label: 'Warm Analog' },
-      groups: [{ genre: 'Cumbia', tones: [{ id: 'accordion', label: 'Accordion (1 MB)' }] }],
+      groups: [
+        {
+          genre: 'Cumbia',
+          tones: [
+            { id: 'accordion', label: 'Accordion (1 MB)' },
+            { id: 'villera-lead', label: 'Villera Lead' },
+          ],
+        },
+      ],
     });
+  });
+
+  it('never gives a synthesised Tone a size label: Villera Lead has nothing to download', () => {
+    const villera = describeSoundStrip(state()).tonePicker?.menu.groups[0].tones.find(
+      (t) => t.id === 'villera-lead',
+    );
+
+    expect(villera?.label).toBe('Villera Lead');
   });
 
   it("labels a Tone not yet downloaded with its download's size, from its committed files", () => {
