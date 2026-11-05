@@ -60,6 +60,15 @@ export function sfzKey(value: string): number {
   return NOTE_OFFSETS[m[1]] + accidental + (Number(m[3]) + 1) * 12;
 }
 
+/** The keys an SFZ region sounds on: lokey..hikey, or `key`, or just its keycentre. */
+export function keyRange(op: SfzOpcodes): { lo: number; hi: number } {
+  const keycentre = op.pitch_keycenter ?? op.key ?? '60';
+  return {
+    lo: sfzKey(op.lokey ?? op.key ?? keycentre),
+    hi: sfzKey(op.hikey ?? op.key ?? keycentre),
+  };
+}
+
 const LOOPING_MODES = ['loop_continuous', 'loop_sustain'];
 
 /**
@@ -85,11 +94,12 @@ export function regionFromSfz(
     loop = { start: (start - cut) / sampleRate, end: (Number(op.loop_end) + 1 - cut) / sampleRate };
   }
 
+  const keys = keyRange(op);
   return {
     file,
     keycentre,
-    keyLo: sfzKey(op.lokey ?? op.key ?? String(keycentre)),
-    keyHi: sfzKey(op.hikey ?? op.key ?? String(keycentre)),
+    keyLo: keys.lo,
+    keyHi: keys.hi,
     velLo: Math.max(1, opcodeNumber('lovel', 1)),
     velHi: opcodeNumber('hivel', 127),
     tune: opcodeNumber('tune', 0),

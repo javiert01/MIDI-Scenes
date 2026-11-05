@@ -1,0 +1,361 @@
+{
+  "toneId": "overdriven-guitar",
+  "sources": [
+    {
+      "name": "FreePats Electric Guitar FSBS, Distorted #2",
+      "url": "https://github.com/freepats/electric-guitar-FSBS-dist2",
+      "pin": {
+        "commit": "21261b8bcb02d1cbf52dc02f1b1636df52d4a947"
+      },
+      "licence": "CC0-1.0",
+      "author": "FreePats",
+      "changes": "Below C4 only, both velocity layers, the first of four round robins. Leading silence trimmed (−48 dBFS, 1 ms kept). Tails cut at 8 s with a 60 ms linear fade-out. Re-encoded as 128 kbps MP3."
+    },
+    {
+      "name": "FreePats Electric Guitar FSBS, Clean #1 small",
+      "url": "https://github.com/freepats/electric-guitar-FSBS-clean",
+      "pin": {
+        "commit": "192cf0d9bf2c4ba6ead8e3524ba3f78818e4fe91"
+      },
+      "licence": "CC0-1.0",
+      "author": "FreePats",
+      "changes": "From C4 up only. An amp drive baked in: gain 4.25, a tanh curve (k 3.2) at 4× oversampling, a 90 Hz high-pass, +4 dB at 900 Hz, a 4.6 kHz low-pass, then gain 0.28. Level-matched to Distorted #2 at C4 by region gain. Leading silence trimmed (−48 dBFS, 1 ms kept). SFZ loops kept where they end within 8 s; every other note fades out over its last 60 ms, cut at 8 s where longer. Re-encoded as 128 kbps MP3."
+    }
+  ],
+  "regions": [
+    {
+      "file": "distorted-C2-s1-soft-01.mp3",
+      "keycentre": 36,
+      "keyLo": 35,
+      "keyHi": 38,
+      "velLo": 1,
+      "velHi": 92,
+      "tune": 0,
+      "gainDb": 0,
+      "pan": 0,
+      "loop": null,
+      "release": false
+    },
+    {
+      "file": "distorted-C2-s1-01.mp3",
+      "keycentre": 36,
+      "keyLo": 35,
+      "keyHi": 38,
+      "velLo": 93,
+      "velHi": 127,
+      "tune": 0,
+      "gainDb": 0,
+      "pan": 0,
+      "loop": null,
+      "release": false
+    },
+    {
+      "file": "distorted-E2-s1-soft-01.mp3",
+      "keycentre": 40,
+      "keyLo": 39,
+      "keyHi": 40,
+      "velLo": 1,
+      "velHi": 92,
+      "tune": 0,
+      "gainDb": 0,
+      "pan": 0,
+      "loop": null,
+      "release": false
+    },
+    {
+      "file": "distorted-E2-s1-01.mp3",
+      "keycentre": 40,
+      "keyLo": 39,
+      "keyHi": 40,
+      "velLo": 93,
+      "velHi": 127,
+      "tune": 0,
+      "gainDb": 0,
+      "pan": 0,
+      "loop": null,
+      "release": false
+    },
+    {
+      "file": "distorted-F2-s1-soft-01.mp3",
+      "keycentre": 41,
+      "keyLo": 41,
+      "keyHi": 42,
+      "velLo": 1,
+      "velHi": 92,
+      "tune": 0,
+      "gainDb": 0,
+      "pan": 0,
+      "loop": null,
+      "release": false
+    },
+    {
+      "file": "distorted-F2-s1-01.mp3",
+      "keycentre": 41,
+      "keyLo": 41,
+      "keyHi": 42,
+      "velLo": 93,
+      "velHi": 127,
+      "tune": 0,
+      "gainDb": 0,
+      "pan": 0,
+      "loop": null,
+      "release": false
+    },
+    {
+      "file": "distorted-A2-s2-soft-01.mp3",
+      "keycentre": 45,
+      "keyLo": 43,
+      "keyHi": 46,
+      "velLo": 1,
+      "velHi": 92,
+      "tune": 0,
+      "gainDb": 0,
+      "pan": 0,
+      "loop": null,
+      "release": false
+    },
+    {
+      "file": "distorted-A2-s2-01.mp3",
+      "keycentre": 45,
+      "keyLo": 43,
+      "keyHi": 46,
+      "velLo": 93,
+      "velHi": 127,
+      "tune": 0,
+      "gainDb": 0,
+      "pan": 0,
+      "loop": null,
+      "release": false
+    },
+    {
+      "file": "distorted-C3-s2-soft-01.mp3",
+      "keycentre": 48,
+      "keyLo": 47,
+      "keyHi": 49,
+      "velLo": 1,
+      "velHi": 92,
+      "tune": 0,
+      "gainDb": 0,
+      "pan": 0,
+      "loop": null,
+      "release": false
+    },
+    {
+      "file": "distorted-C3-s2-01.mp3",
+      "keycentre": 48,
+      "keyLo": 47,
+      "keyHi": 49,
+      "velLo": 93,
+      "velHi": 127,
+      "tune": 0,
+      "gainDb": 0,
+      "pan": 0,
+      "loop": null,
+      "release": false
+    },
+    {
+      "file": "distorted-D3-s3-soft-01.mp3",
+      "keycentre": 50,
+      "keyLo": 50,
+      "keyHi": 51,
+      "velLo": 1,
+      "velHi": 92,
+      "tune": 0,
+      "gainDb": 0,
+      "pan": 0,
+      "loop": null,
+      "release": false
+    },
+    {
+      "file": "distorted-D3-s3-01.mp3",
+      "keycentre": 50,
+      "keyLo": 50,
+      "keyHi": 51,
+      "velLo": 93,
+      "velHi": 127,
+      "tune": 0,
+      "gainDb": 0,
+      "pan": 0,
+      "loop": null,
+      "release": false
+    },
+    {
+      "file": "distorted-E3-s3-soft-01.mp3",
+      "keycentre": 52,
+      "keyLo": 52,
+      "keyHi": 53,
+      "velLo": 1,
+      "velHi": 92,
+      "tune": 0,
+      "gainDb": 0,
+      "pan": 0,
+      "loop": null,
+      "release": false
+    },
+    {
+      "file": "distorted-E3-s3-01.mp3",
+      "keycentre": 52,
+      "keyLo": 52,
+      "keyHi": 53,
+      "velLo": 93,
+      "velHi": 127,
+      "tune": 0,
+      "gainDb": 0,
+      "pan": 0,
+      "loop": null,
+      "release": false
+    },
+    {
+      "file": "distorted-G3-s4-soft-01.mp3",
+      "keycentre": 55,
+      "keyLo": 54,
+      "keyHi": 56,
+      "velLo": 1,
+      "velHi": 92,
+      "tune": 0,
+      "gainDb": 0,
+      "pan": 0,
+      "loop": null,
+      "release": false
+    },
+    {
+      "file": "distorted-G3-s4-01.mp3",
+      "keycentre": 55,
+      "keyLo": 54,
+      "keyHi": 56,
+      "velLo": 93,
+      "velHi": 127,
+      "tune": 0,
+      "gainDb": 0,
+      "pan": 0,
+      "loop": null,
+      "release": false
+    },
+    {
+      "file": "distorted-B3-s5-soft-01.mp3",
+      "keycentre": 59,
+      "keyLo": 57,
+      "keyHi": 59,
+      "velLo": 1,
+      "velHi": 92,
+      "tune": 0,
+      "gainDb": 0,
+      "pan": 0,
+      "loop": null,
+      "release": false
+    },
+    {
+      "file": "distorted-B3-s5-01.mp3",
+      "keycentre": 59,
+      "keyLo": 57,
+      "keyHi": 59,
+      "velLo": 93,
+      "velHi": 127,
+      "tune": 0,
+      "gainDb": 0,
+      "pan": 0,
+      "loop": null,
+      "release": false
+    },
+    {
+      "file": "clean-B3-s5-01.mp3",
+      "keycentre": 59,
+      "keyLo": 60,
+      "keyHi": 61,
+      "velLo": 1,
+      "velHi": 127,
+      "tune": 0,
+      "gainDb": 0.32,
+      "pan": 0,
+      "loop": null,
+      "release": false
+    },
+    {
+      "file": "clean-E4-s6-01.mp3",
+      "keycentre": 64,
+      "keyLo": 62,
+      "keyHi": 65,
+      "velLo": 1,
+      "velHi": 127,
+      "tune": 0,
+      "gainDb": 0.32,
+      "pan": 0,
+      "loop": {
+        "start": 4.910544217687074,
+        "end": 7.047120181405896
+      },
+      "release": false
+    },
+    {
+      "file": "clean-G4-s6-01.mp3",
+      "keycentre": 67,
+      "keyLo": 66,
+      "keyHi": 69,
+      "velLo": 1,
+      "velHi": 127,
+      "tune": 0,
+      "gainDb": 0.32,
+      "pan": 0,
+      "loop": {
+        "start": 4.721904761904762,
+        "end": 6.020929705215419
+      },
+      "release": false
+    },
+    {
+      "file": "clean-B4-s6-01.mp3",
+      "keycentre": 71,
+      "keyLo": 70,
+      "keyHi": 72,
+      "velLo": 1,
+      "velHi": 127,
+      "tune": 0,
+      "gainDb": 0.32,
+      "pan": 0,
+      "loop": {
+        "start": 4.563560090702948,
+        "end": 5.801632653061224
+      },
+      "release": false
+    },
+    {
+      "file": "clean-D5-s6-01.mp3",
+      "keycentre": 74,
+      "keyLo": 73,
+      "keyHi": 76,
+      "velLo": 1,
+      "velHi": 127,
+      "tune": 0,
+      "gainDb": 0.32,
+      "pan": 0,
+      "loop": null,
+      "release": false
+    },
+    {
+      "file": "clean-Gs5-s6-03.mp3",
+      "keycentre": 80,
+      "keyLo": 77,
+      "keyHi": 82,
+      "velLo": 1,
+      "velHi": 127,
+      "tune": 0,
+      "gainDb": 0.32,
+      "pan": 0,
+      "loop": null,
+      "release": false
+    },
+    {
+      "file": "clean-Cs6-s6-01.mp3",
+      "keycentre": 85,
+      "keyLo": 83,
+      "keyHi": 95,
+      "velLo": 1,
+      "velHi": 127,
+      "tune": 0,
+      "gainDb": 0.32,
+      "pan": 0,
+      "loop": null,
+      "release": false
+    }
+  ]
+}

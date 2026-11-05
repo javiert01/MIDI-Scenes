@@ -1,0 +1,587 @@
+{
+  "toneId": "strings",
+  "sources": [
+    {
+      "name": "VSCO 2 Community Edition: Cello Section and Violin Section, sustained vibrato",
+      "url": "https://github.com/sgossner/VSCO-2-CE",
+      "pin": {
+        "commit": "440300901dfe9275fd84e0b7763af1f8443ae62e"
+      },
+      "licence": "CC0-1.0",
+      "author": "Versilian Studios (Sam Gossner, Simon Dalzell)",
+      "changes": "Cello Section below C4 and Violin Section from C4, both dynamic layers. Leading silence trimmed (−48 dBFS, 1 ms kept). A 2 s equal-power crossfade loop baked in, ending 0.6 s before the sample ends (the rest is cut) and starting 0.5 s after the crossfade does. Re-encoded as 128 kbps MP3."
+    },
+    {
+      "name": "VSCO 2 Community Edition SFZ mappings",
+      "url": "https://github.com/sgossner/VSCO-2-CE/tree/SFZ",
+      "pin": {
+        "commit": "6dd651d55dde97fd4028699be9d4481f26917891"
+      },
+      "licence": "CC0-1.0",
+      "author": "Versilian Studios (Sam Gossner, Simon Dalzell)",
+      "changes": "Key ranges, velocity layers and volumes from CelloEnsSusVib.sfz and ViolinEnsSusVib.sfz, split at C4 and widened to cover 36–95."
+    }
+  ],
+  "regions": [
+    {
+      "file": "cello-A2-v1-1.mp3",
+      "keycentre": 57,
+      "keyLo": 55,
+      "keyHi": 58,
+      "velLo": 1,
+      "velHi": 62,
+      "tune": 0,
+      "gainDb": 16,
+      "pan": 0,
+      "loop": {
+        "start": 2.5,
+        "end": 8.195532879818595
+      },
+      "release": false
+    },
+    {
+      "file": "cello-B1-v1-1.mp3",
+      "keycentre": 47,
+      "keyLo": 45,
+      "keyHi": 48,
+      "velLo": 1,
+      "velHi": 62,
+      "tune": 0,
+      "gainDb": 16,
+      "pan": 0,
+      "loop": {
+        "start": 2.5,
+        "end": 8.236870748299319
+      },
+      "release": false
+    },
+    {
+      "file": "cello-C1-v1-1.mp3",
+      "keycentre": 36,
+      "keyLo": 36,
+      "keyHi": 37,
+      "velLo": 1,
+      "velHi": 62,
+      "tune": 0,
+      "gainDb": 16,
+      "pan": 0,
+      "loop": {
+        "start": 2.5,
+        "end": 8.178979591836734
+      },
+      "release": false
+    },
+    {
+      "file": "cello-C3-v1-1.mp3",
+      "keycentre": 60,
+      "keyLo": 59,
+      "keyHi": 59,
+      "velLo": 1,
+      "velHi": 62,
+      "tune": 0,
+      "gainDb": 16,
+      "pan": 0,
+      "loop": {
+        "start": 2.5,
+        "end": 8.601496598639455
+      },
+      "release": false
+    },
+    {
+      "file": "cello-D2-v1-1.mp3",
+      "keycentre": 50,
+      "keyLo": 49,
+      "keyHi": 51,
+      "velLo": 1,
+      "velHi": 62,
+      "tune": 0,
+      "gainDb": 16,
+      "pan": 0,
+      "loop": {
+        "start": 2.5,
+        "end": 8.988616780045351
+      },
+      "release": false
+    },
+    {
+      "file": "cello-E1-v1-1.mp3",
+      "keycentre": 40,
+      "keyLo": 38,
+      "keyHi": 41,
+      "velLo": 1,
+      "velHi": 41,
+      "tune": 0,
+      "gainDb": 16,
+      "pan": 0,
+      "loop": {
+        "start": 2.5,
+        "end": 8.680204081632652
+      },
+      "release": false
+    },
+    {
+      "file": "cello-E1-v1-2.mp3",
+      "keycentre": 40,
+      "keyLo": 38,
+      "keyHi": 41,
+      "velLo": 42,
+      "velHi": 62,
+      "tune": 0,
+      "gainDb": 16,
+      "pan": 0,
+      "loop": {
+        "start": 2.5,
+        "end": 8.530249433106576
+      },
+      "release": false
+    },
+    {
+      "file": "cello-F2-v1-1.mp3",
+      "keycentre": 53,
+      "keyLo": 52,
+      "keyHi": 54,
+      "velLo": 1,
+      "velHi": 62,
+      "tune": 0,
+      "gainDb": 16,
+      "pan": 0,
+      "loop": {
+        "start": 2.5,
+        "end": 7.497528344671202
+      },
+      "release": false
+    },
+    {
+      "file": "cello-G1-v1-1.mp3",
+      "keycentre": 43,
+      "keyLo": 42,
+      "keyHi": 44,
+      "velLo": 1,
+      "velHi": 62,
+      "tune": 0,
+      "gainDb": 16,
+      "pan": 0,
+      "loop": {
+        "start": 2.5,
+        "end": 7.440430839002268
+      },
+      "release": false
+    },
+    {
+      "file": "cello-A2-v3-1.mp3",
+      "keycentre": 57,
+      "keyLo": 55,
+      "keyHi": 58,
+      "velLo": 63,
+      "velHi": 127,
+      "tune": 0,
+      "gainDb": 4,
+      "pan": 0,
+      "loop": {
+        "start": 2.5,
+        "end": 11.05015873015873
+      },
+      "release": false
+    },
+    {
+      "file": "cello-B1-v3-1.mp3",
+      "keycentre": 47,
+      "keyLo": 45,
+      "keyHi": 48,
+      "velLo": 63,
+      "velHi": 127,
+      "tune": 0,
+      "gainDb": 4,
+      "pan": 0,
+      "loop": {
+        "start": 2.5,
+        "end": 12.14655328798186
+      },
+      "release": false
+    },
+    {
+      "file": "cello-C1-v3-1.mp3",
+      "keycentre": 36,
+      "keyLo": 36,
+      "keyHi": 37,
+      "velLo": 63,
+      "velHi": 127,
+      "tune": 0,
+      "gainDb": 4,
+      "pan": 0,
+      "loop": {
+        "start": 2.5,
+        "end": 12.007052154195012
+      },
+      "release": false
+    },
+    {
+      "file": "cello-C3-v3-1.mp3",
+      "keycentre": 60,
+      "keyLo": 59,
+      "keyHi": 59,
+      "velLo": 63,
+      "velHi": 127,
+      "tune": 0,
+      "gainDb": 4,
+      "pan": 0,
+      "loop": {
+        "start": 2.5,
+        "end": 10.810680272108844
+      },
+      "release": false
+    },
+    {
+      "file": "cello-D2-v3-1.mp3",
+      "keycentre": 50,
+      "keyLo": 49,
+      "keyHi": 51,
+      "velLo": 63,
+      "velHi": 127,
+      "tune": 0,
+      "gainDb": 4,
+      "pan": 0,
+      "loop": {
+        "start": 2.5,
+        "end": 11.838866213151928
+      },
+      "release": false
+    },
+    {
+      "file": "cello-E1-v3-1.mp3",
+      "keycentre": 40,
+      "keyLo": 38,
+      "keyHi": 41,
+      "velLo": 63,
+      "velHi": 127,
+      "tune": 0,
+      "gainDb": 3,
+      "pan": 0,
+      "loop": {
+        "start": 2.5,
+        "end": 11.041655328798186
+      },
+      "release": false
+    },
+    {
+      "file": "cello-F2-v3-1.mp3",
+      "keycentre": 53,
+      "keyLo": 52,
+      "keyHi": 54,
+      "velLo": 63,
+      "velHi": 127,
+      "tune": 0,
+      "gainDb": 4,
+      "pan": 0,
+      "loop": {
+        "start": 2.5,
+        "end": 10.974648526077097
+      },
+      "release": false
+    },
+    {
+      "file": "cello-G1-v3-1.mp3",
+      "keycentre": 43,
+      "keyLo": 42,
+      "keyHi": 44,
+      "velLo": 63,
+      "velHi": 127,
+      "tune": 0,
+      "gainDb": 4,
+      "pan": 0,
+      "loop": {
+        "start": 2.5,
+        "end": 12.137913832199546
+      },
+      "release": false
+    },
+    {
+      "file": "violin-A3-v1.mp3",
+      "keycentre": 69,
+      "keyLo": 68,
+      "keyHi": 70,
+      "velLo": 1,
+      "velHi": 62,
+      "tune": 0,
+      "gainDb": 20,
+      "pan": 0,
+      "loop": {
+        "start": 2.5,
+        "end": 9.9218820861678
+      },
+      "release": false
+    },
+    {
+      "file": "violin-B2-v1.mp3",
+      "keycentre": 59,
+      "keyLo": 60,
+      "keyHi": 60,
+      "velLo": 1,
+      "velHi": 62,
+      "tune": 0,
+      "gainDb": 20,
+      "pan": 0,
+      "loop": {
+        "start": 2.5,
+        "end": 12.190680272108844
+      },
+      "release": false
+    },
+    {
+      "file": "violin-B4-v1.mp3",
+      "keycentre": 83,
+      "keyLo": 81,
+      "keyHi": 84,
+      "velLo": 1,
+      "velHi": 62,
+      "tune": 0,
+      "gainDb": 20,
+      "pan": 0,
+      "loop": {
+        "start": 2.5,
+        "end": 10.784172335600907
+      },
+      "release": false
+    },
+    {
+      "file": "violin-C4-v1.mp3",
+      "keycentre": 72,
+      "keyLo": 71,
+      "keyHi": 73,
+      "velLo": 1,
+      "velHi": 62,
+      "tune": 0,
+      "gainDb": 20,
+      "pan": 0,
+      "loop": {
+        "start": 2.5,
+        "end": 10.97421768707483
+      },
+      "release": false
+    },
+    {
+      "file": "violin-D3-v1.mp3",
+      "keycentre": 62,
+      "keyLo": 61,
+      "keyHi": 63,
+      "velLo": 1,
+      "velHi": 62,
+      "tune": 0,
+      "gainDb": 20,
+      "pan": 0,
+      "loop": {
+        "start": 2.5,
+        "end": 10.898820861678004
+      },
+      "release": false
+    },
+    {
+      "file": "violin-D5-v1.mp3",
+      "keycentre": 86,
+      "keyLo": 85,
+      "keyHi": 95,
+      "velLo": 1,
+      "velHi": 62,
+      "tune": 0,
+      "gainDb": 20,
+      "pan": 0,
+      "loop": {
+        "start": 2.5,
+        "end": 11.263378684807256
+      },
+      "release": false
+    },
+    {
+      "file": "violin-E4-v1.mp3",
+      "keycentre": 76,
+      "keyLo": 74,
+      "keyHi": 77,
+      "velLo": 1,
+      "velHi": 62,
+      "tune": 0,
+      "gainDb": 20,
+      "pan": 0,
+      "loop": {
+        "start": 2.5,
+        "end": 12.313106575963719
+      },
+      "release": false
+    },
+    {
+      "file": "violin-Fs3-v1.mp3",
+      "keycentre": 66,
+      "keyLo": 64,
+      "keyHi": 67,
+      "velLo": 1,
+      "velHi": 62,
+      "tune": 0,
+      "gainDb": 20,
+      "pan": 0,
+      "loop": {
+        "start": 2.5,
+        "end": 8.239002267573696
+      },
+      "release": false
+    },
+    {
+      "file": "violin-G4-v1.mp3",
+      "keycentre": 79,
+      "keyLo": 78,
+      "keyHi": 80,
+      "velLo": 1,
+      "velHi": 62,
+      "tune": 0,
+      "gainDb": 20,
+      "pan": 0,
+      "loop": {
+        "start": 2.5,
+        "end": 12.478095238095237
+      },
+      "release": false
+    },
+    {
+      "file": "violin-A3-v2.mp3",
+      "keycentre": 69,
+      "keyLo": 68,
+      "keyHi": 70,
+      "velLo": 63,
+      "velHi": 127,
+      "tune": 0,
+      "gainDb": 7,
+      "pan": 0,
+      "loop": {
+        "start": 2.5,
+        "end": 8.861315192743763
+      },
+      "release": false
+    },
+    {
+      "file": "violin-B2-v2.mp3",
+      "keycentre": 59,
+      "keyLo": 60,
+      "keyHi": 60,
+      "velLo": 63,
+      "velHi": 127,
+      "tune": 0,
+      "gainDb": 7,
+      "pan": 0,
+      "loop": {
+        "start": 2.5,
+        "end": 12.840385487528344
+      },
+      "release": false
+    },
+    {
+      "file": "violin-B4-v2.mp3",
+      "keycentre": 83,
+      "keyLo": 81,
+      "keyHi": 84,
+      "velLo": 63,
+      "velHi": 127,
+      "tune": 0,
+      "gainDb": 7,
+      "pan": 0,
+      "loop": {
+        "start": 2.5,
+        "end": 10.29031746031746
+      },
+      "release": false
+    },
+    {
+      "file": "violin-C4-v2.mp3",
+      "keycentre": 72,
+      "keyLo": 71,
+      "keyHi": 73,
+      "velLo": 63,
+      "velHi": 127,
+      "tune": 0,
+      "gainDb": 7,
+      "pan": 0,
+      "loop": {
+        "start": 2.5,
+        "end": 10.833854875283446
+      },
+      "release": false
+    },
+    {
+      "file": "violin-D3-v2.mp3",
+      "keycentre": 62,
+      "keyLo": 61,
+      "keyHi": 63,
+      "velLo": 63,
+      "velHi": 127,
+      "tune": 0,
+      "gainDb": 7,
+      "pan": 0,
+      "loop": {
+        "start": 2.5,
+        "end": 13.274195011337868
+      },
+      "release": false
+    },
+    {
+      "file": "violin-D5-v2.mp3",
+      "keycentre": 86,
+      "keyLo": 85,
+      "keyHi": 95,
+      "velLo": 63,
+      "velHi": 127,
+      "tune": 0,
+      "gainDb": 7,
+      "pan": 0,
+      "loop": {
+        "start": 2.5,
+        "end": 10.594580498866213
+      },
+      "release": false
+    },
+    {
+      "file": "violin-E4-v2.mp3",
+      "keycentre": 76,
+      "keyLo": 74,
+      "keyHi": 77,
+      "velLo": 63,
+      "velHi": 127,
+      "tune": 0,
+      "gainDb": 7,
+      "pan": 0,
+      "loop": {
+        "start": 2.5,
+        "end": 9.01342403628118
+      },
+      "release": false
+    },
+    {
+      "file": "violin-Fs3-v2.mp3",
+      "keycentre": 66,
+      "keyLo": 64,
+      "keyHi": 67,
+      "velLo": 63,
+      "velHi": 127,
+      "tune": 0,
+      "gainDb": 7,
+      "pan": 0,
+      "loop": {
+        "start": 2.5,
+        "end": 9.123287981859411
+      },
+      "release": false
+    },
+    {
+      "file": "violin-G4-v2.mp3",
+      "keycentre": 79,
+      "keyLo": 78,
+      "keyHi": 80,
+      "velLo": 63,
+      "velHi": 127,
+      "tune": 0,
+      "gainDb": 7,
+      "pan": 0,
+      "loop": {
+        "start": 2.5,
+        "end": 11.56031746031746
+      },
+      "release": false
+    }
+  ]
+}

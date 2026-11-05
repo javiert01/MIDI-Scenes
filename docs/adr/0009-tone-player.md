@@ -116,7 +116,8 @@ This ADR records the decisions that are surprising or hard to reverse.
 ## Consequences
 
 - The repo carries about 17 MiB of committed MP3s. Only someone regenerating the
-  assets needs ffmpeg.
+  assets needs ffmpeg, and a `tar` that unpacks `.tar.xz` for the Rock Organ's
+  archive (macOS's own does).
 - A Device's notes can be heard, so a Device left sounding during a recording would
   be captured. That is why Device sound stays off by default.
 - The `prototype/tone-audition` branch stays unmerged as the bench for tuning
