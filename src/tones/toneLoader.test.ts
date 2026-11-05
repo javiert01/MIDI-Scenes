@@ -1,7 +1,9 @@
+import { statSync } from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { AudioBufferLike } from '@/engine/audio';
-import { toneById } from '@/tones/catalogue';
-import { createToneLoader, type ToneLoadOptions } from '@/tones/toneLoader';
+import { TONES, toneById } from '@/tones/catalogue';
+import { createToneLoader, TONE_DOWNLOAD_BYTES, type ToneLoadOptions } from '@/tones/toneLoader';
 import accordion from '@/tones/accordion/regions.json';
 
 const ACCORDION = toneById('accordion');
@@ -112,5 +114,22 @@ describe('the Tone loader', () => {
     const load = createToneLoader(fakeFetch());
 
     await expect(load(toneById('warm-analog'), options())).rejects.toThrow(/no assets/);
+  });
+});
+
+describe('download sizes', () => {
+  it("are each sampled Tone's committed files, summed", () => {
+    const committed = FILES.reduce(
+      (sum, file) => sum + statSync(path.resolve('src/tones/accordion', file)).size,
+      0,
+    );
+
+    expect(TONE_DOWNLOAD_BYTES.accordion).toBe(committed);
+  });
+
+  it('cover every sampled Tone and no synthesised one', () => {
+    const sampled = TONES.filter((t) => t.kind === 'sampled').map((t) => t.id);
+
+    expect(Object.keys(TONE_DOWNLOAD_BYTES).sort()).toEqual(sampled.sort());
   });
 });

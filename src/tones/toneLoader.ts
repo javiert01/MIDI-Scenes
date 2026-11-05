@@ -7,7 +7,7 @@
 
 import type { AudioBufferLike } from '@/engine/audio';
 import type { DecodedTone } from '@/engine/sampledTone';
-import type { ToneDefinition } from './catalogue';
+import { TONES, type ToneDefinition } from './catalogue';
 import type { ToneAssets } from './toneAssets';
 
 export interface ToneLoadOptions {
@@ -25,10 +25,11 @@ export type ToneLoader = (tone: ToneDefinition, options: ToneLoadOptions) => Pro
 /** Downloads one file's bytes. */
 export type FileFetcher = (url: string, signal?: AbortSignal) => Promise<ArrayBuffer>;
 
-/** Every committed Tone's `regions.json` and its samples' URLs, keyed `<folder>/<file>`. */
+/** Every committed Tone's `regions.json`, and its samples' URLs and sizes, keyed `<folder>/<file>`. */
 interface BundledTones {
   regions: Record<string, ToneAssets>;
   urls: Record<string, string>;
+  bytes: Record<string, number>;
 }
 
 /** Keys glob results by path under `src/tones/`, minus `suffix`: `./accordion/A4.mp3` → `accordion/A4.mp3`. */
@@ -46,7 +47,33 @@ const BUNDLED: BundledTones = {
   urls: byFolder(
     import.meta.glob<string>('./*/*.mp3', { eager: true, query: '?url', import: 'default' }),
   ),
+  // Sizes on disk, from the `file-bytes` plugin in `vite.config.ts`.
+  bytes: byFolder(
+    import.meta.glob<number>('./*/*.mp3', { eager: true, query: '?bytes', import: 'default' }),
+  ),
 };
+
+/** The files a sampled Tone downloads, each once, with its assets; or undefined for a Tone with none. */
+function toneFiles(tone: ToneDefinition): { assets: ToneAssets; files: string[] } | undefined {
+  const assets = tone.assets === undefined ? undefined : BUNDLED.regions[tone.assets];
+  return assets && { assets, files: [...new Set(assets.regions.map((r) => r.file))] };
+}
+
+/**
+ * How many bytes picking each sampled Tone downloads, by id: its committed
+ * files, summed. The Sound strip labels Tones not yet downloaded with it.
+ */
+export const TONE_DOWNLOAD_BYTES: Readonly<Record<string, number>> = Object.fromEntries(
+  TONES.flatMap((tone) => {
+    const found = toneFiles(tone);
+    if (!found) return [];
+    const bytes = found.files.reduce(
+      (sum, file) => sum + (BUNDLED.bytes[`${tone.assets}/${file}`] ?? 0),
+      0,
+    );
+    return [[tone.id, bytes]];
+  }),
+);
 
 const fetchFile: FileFetcher = async (url, signal) => {
   const response = await fetch(url, { signal });
@@ -57,9 +84,9 @@ const fetchFile: FileFetcher = async (url, signal) => {
 /** A loader for the committed Tones, downloading each file with `fetcher`. */
 export function createToneLoader(fetcher: FileFetcher = fetchFile): ToneLoader {
   return async (tone, { decode, signal, onProgress }) => {
-    const assets = tone.assets === undefined ? undefined : BUNDLED.regions[tone.assets];
-    if (!assets) throw new Error(`${tone.id} has no assets`);
-    const files = [...new Set(assets.regions.map((r) => r.file))];
+    const found = toneFiles(tone);
+    if (!found) throw new Error(`${tone.id} has no assets`);
+    const { assets, files } = found;
     const urls = files.map((file) => {
       const url = BUNDLED.urls[`${tone.assets}/${file}`];
       if (!url) throw new Error(`${tone.id}: ${file} is not bundled`);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { describeSoundStrip, gatesForSoundMode, type SoundState } from '@/soundStrip';
+import { describeSoundStrip, gatesForSoundMode, sizeLabelMb, type SoundState } from '@/soundStrip';
 
 function state(overrides: Partial<SoundState> = {}): SoundState {
   return {
@@ -8,6 +8,9 @@ function state(overrides: Partial<SoundState> = {}): SoundState {
     audioSuspended: false,
     outputLatencyMs: null,
     toneId: 'warm-analog',
+    toneStatus: 'ready',
+    toneProgress: null,
+    downloadedToneIds: [],
     ...overrides,
   };
 }
@@ -74,9 +77,96 @@ describe('the Tone dropdown', () => {
 
   it('lists Warm Analog first, then each Genre as a group: only Cumbia, with the Accordion, for now', () => {
     expect(describeSoundStrip(state()).tonePicker?.menu).toEqual({
-      first: { id: 'warm-analog', name: 'Warm Analog' },
-      groups: [{ genre: 'Cumbia', tones: [{ id: 'accordion', name: 'Accordion' }] }],
+      first: { id: 'warm-analog', label: 'Warm Analog' },
+      groups: [{ genre: 'Cumbia', tones: [{ id: 'accordion', label: 'Accordion (1 MB)' }] }],
     });
+  });
+
+  it("labels a Tone not yet downloaded with its download's size, from its committed files", () => {
+    const strip = describeSoundStrip(state(), { accordion: 3.4 * 2 ** 20 });
+
+    expect(strip.tonePicker?.menu.groups[0].tones[0].label).toBe('Accordion (3 MB)');
+  });
+
+  it('drops the size once the Tone has downloaded, and never gives Warm Analog one', () => {
+    const strip = describeSoundStrip(state({ downloadedToneIds: ['accordion'] }));
+
+    expect(strip.tonePicker?.menu.first.label).toBe('Warm Analog');
+    expect(strip.tonePicker?.menu.groups[0].tones[0].label).toBe('Accordion');
+  });
+});
+
+describe('sizeLabelMb', () => {
+  it('rounds to whole MB', () => {
+    expect(sizeLabelMb(7.3 * 2 ** 20)).toBe('7 MB');
+    expect(sizeLabelMb(6.5 * 2 ** 20)).toBe('7 MB');
+    expect(sizeLabelMb(2.49 * 2 ** 20)).toBe('2 MB');
+  });
+
+  it('never says less than 1 MB', () => {
+    expect(sizeLabelMb(0.2 * 2 ** 20)).toBe('1 MB');
+    expect(sizeLabelMb(1)).toBe('1 MB');
+  });
+});
+
+describe('the download line', () => {
+  const loading = (filesDone: number, filesTotal: number) =>
+    state({
+      toneId: 'accordion',
+      toneStatus: 'loading',
+      toneProgress: { filesDone, filesTotal },
+    });
+
+  it('shows files done out of the total while a Tone downloads, with Warm Analog standing in', () => {
+    const strip = describeSoundStrip(loading(12, 34));
+
+    expect(strip.download).toEqual({
+      kind: 'progress',
+      fraction: 12 / 34,
+      text: "Downloading Accordion: 12 of 34 files · Warm Analog plays until it's ready",
+    });
+  });
+
+  it('starts at nothing done before the first file is in', () => {
+    expect(describeSoundStrip(loading(0, 34)).download).toMatchObject({
+      fraction: 0,
+      text: "Downloading Accordion: 0 of 34 files · Warm Analog plays until it's ready",
+    });
+    expect(
+      describeSoundStrip(state({ toneId: 'accordion', toneStatus: 'loading' })).download,
+    ).toEqual({
+      kind: 'progress',
+      fraction: 0,
+      text: "Downloading Accordion… · Warm Analog plays until it's ready",
+    });
+  });
+
+  it('says Preparing once every file is in and the Tone decodes, with the bar full', () => {
+    expect(describeSoundStrip(loading(34, 34)).download).toEqual({
+      kind: 'progress',
+      fraction: 1,
+      text: "Preparing Accordion… · Warm Analog plays until it's ready",
+    });
+  });
+
+  it('offers Retry when the download failed', () => {
+    const strip = describeSoundStrip(state({ toneId: 'accordion', toneStatus: 'failed' }));
+
+    expect(strip.download).toEqual({
+      kind: 'failed',
+      text: "Couldn't download Accordion. Warm Analog is playing.",
+    });
+  });
+
+  it('shows nothing once the Tone is ready, or while sound is Off', () => {
+    expect(describeSoundStrip(state({ toneId: 'accordion' })).download).toBeNull();
+    expect(
+      describeSoundStrip(state({ toneId: 'accordion', toneStatus: 'idle' })).download,
+    ).toBeNull();
+    expect(
+      describeSoundStrip(state({ soundEnabled: false, toneId: 'accordion', toneStatus: 'failed' }))
+        .download,
+    ).toBeNull();
   });
 });
 
