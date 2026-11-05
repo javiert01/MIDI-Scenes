@@ -22,8 +22,9 @@ export interface ToneDefinition {
   /** How long a note takes to reach full level (seconds). */
   attackSeconds: number;
   /**
-   * How far velocity shapes a sampled Tone's level, 0..1: its gain is scaled by
-   * 1 − t + t · (v/127)². 0 ignores velocity.
+   * How far velocity shapes the Tone's level, 0..1. A sampled Tone's gain is
+   * scaled by 1 − t + t · (v/127)². A synthesised Tone applies it its own way,
+   * as its module says. 0 ignores velocity.
    */
   velocityTracking: number;
   /** Attribution the Sound strip shows while the Tone is selected, where a licence asks for it. */
@@ -69,6 +70,18 @@ export const TONES: readonly ToneDefinition[] = [
     attackSeconds: 0.03,
     velocityTracking: 0.4,
     assets: 'accordion',
+  },
+  {
+    // A working name: renaming it changes only `name`, never this saved id.
+    id: 'villera-lead',
+    name: 'Villera Lead',
+    genre: 'Cumbia',
+    kind: 'synth',
+    gainDb: -3,
+    releaseSeconds: 0.12,
+    attackSeconds: 0.006,
+    // Linear, unlike a sampled Tone's: see `src/engine/villeraLead.ts`.
+    velocityTracking: 0.45,
   },
 ];
 

@@ -80,13 +80,23 @@ describe('the Tone dropdown', () => {
       first: { id: 'warm-analog', label: 'Warm Analog' },
       groups: [
         { genre: 'Classical', tones: [{ id: 'grand-piano', label: 'Grand Piano (7 MB)' }] },
-        { genre: 'Cumbia', tones: [{ id: 'accordion', label: 'Accordion (1 MB)' }] },
+        {
+          genre: 'Cumbia',
+          tones: [
+            { id: 'accordion', label: 'Accordion (1 MB)' },
+            { id: 'villera-lead', label: 'Villera Lead' },
+          ],
+        },
       ],
     });
   });
 
   const label = (strip: ReturnType<typeof describeSoundStrip>, id: string) =>
     strip.tonePicker?.menu.groups.flatMap((g) => g.tones).find((t) => t.id === id)?.label;
+
+  it('never gives a synthesised Tone a size label: Villera Lead has nothing to download', () => {
+    expect(label(describeSoundStrip(state()), 'villera-lead')).toBe('Villera Lead');
+  });
 
   it("labels a Tone not yet downloaded with its download's size, from its committed files", () => {
     const strip = describeSoundStrip(state(), { accordion: 3.4 * 2 ** 20 });

@@ -2345,6 +2345,7 @@ class SpyAudioParam implements AudioParamLike {
     this.value = value;
   }
   linearRampToValueAtTime(): void {}
+  exponentialRampToValueAtTime(): void {}
   setTargetAtTime(target: number): void {
     this.target = target;
   }
@@ -2375,6 +2376,7 @@ class SpyBiquadFilter implements BiquadFilterNodeLike {
   type: BiquadFilterType = 'lowpass';
   frequency = new SpyAudioParam();
   Q = new SpyAudioParam();
+  gain = new SpyAudioParam();
   connect(): void {}
 }
 
@@ -3661,12 +3663,24 @@ describe('VisualizerEngine Tones', () => {
   const keyup = (code: string) =>
     window.dispatchEvent(new KeyboardEvent('keyup', { code, bubbles: true }));
 
-  /** What a computer key sounds with: a Warm Analog voice (a low-pass filter) or a sampled one. */
-  function sounds(audio: SpyAudioContext, code: string): 'warm-analog' | 'sampled' | 'nothing' {
-    const [filters, sources] = [audio.filters.length, audio.bufferSources.length];
+  /**
+   * What a computer key sounds with: a sampled voice, a Villera Lead voice (its
+   * square oscillator), a Warm Analog voice (a low-pass filter), or nothing.
+   */
+  function sounds(
+    audio: SpyAudioContext,
+    code: string,
+  ): 'warm-analog' | 'villera-lead' | 'sampled' | 'nothing' {
+    const [filters, sources, oscillators] = [
+      audio.filters.length,
+      audio.bufferSources.length,
+      audio.oscillators.length,
+    ];
     keydown(code);
     keyup(code);
     if (audio.bufferSources.length > sources) return 'sampled';
+    if (audio.oscillators.slice(oscillators).some((o) => o.type === 'square'))
+      return 'villera-lead';
     return audio.filters.length > filters ? 'warm-analog' : 'nothing';
   }
 
@@ -3682,6 +3696,17 @@ describe('VisualizerEngine Tones', () => {
     expect(engine.toneStatus).toBe('ready');
     expect(loads).toHaveLength(0);
     expect(sounds(audio, 'KeyA')).toBe('warm-analog');
+  });
+
+  it('picking Villera Lead, synthesised, plays it from the next note: ready at once, loading nothing', () => {
+    const { engine, audio, loads } = setUpEngine();
+
+    engine.selectTone('villera-lead');
+
+    expect(engine.toneId).toBe('villera-lead');
+    expect(engine.toneStatus).toBe('ready');
+    expect(loads).toHaveLength(0);
+    expect(sounds(audio, 'KeyA')).toBe('villera-lead');
   });
 
   it("picking the Accordion starts its load, decoding through the Tone Player's context", async () => {
@@ -4059,6 +4084,17 @@ describe('VisualizerEngine Tones', () => {
 
       expect(engine.toneId).toBe('accordion');
       expect(loads.map((l) => l.tone.id)).toEqual(['accordion']);
+    });
+
+    it("restores Villera Lead from its saved id, 'villera-lead', and plays it at once, loading nothing", () => {
+      const { engine, audio, loads } = setUpEngine({
+        storage: savedStorage({ toneId: 'villera-lead' }),
+      });
+
+      expect(engine.toneId).toBe('villera-lead');
+      expect(engine.toneStatus).toBe('ready');
+      expect(loads).toHaveLength(0);
+      expect(sounds(audio, 'KeyA')).toBe('villera-lead');
     });
 
     it('falls back to Warm Analog for a saved id the catalogue no longer holds, or none at all', () => {

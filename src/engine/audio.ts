@@ -10,6 +10,8 @@ export interface AudioParamLike {
   value: number;
   setValueAtTime(value: number, startTime: number): void;
   linearRampToValueAtTime(value: number, endTime: number): void;
+  /** Ramps exponentially to `value`, as a synthesised Tone glides into a note. */
+  exponentialRampToValueAtTime(value: number, endTime: number): void;
   /** Approaches `target` exponentially from `startTime`, as a bend glides. */
   setTargetAtTime(target: number, startTime: number, timeConstant: number): void;
   cancelScheduledValues(startTime: number): void;
@@ -17,7 +19,8 @@ export interface AudioParamLike {
 
 /** A node audio can be routed into (a gain, or the context destination). */
 export interface AudioNodeLike {
-  connect(destination: AudioNodeLike): void;
+  /** Routes into another node, or modulates a param (a vibrato LFO into a detune). */
+  connect(destination: AudioNodeLike | AudioParamLike): void;
 }
 
 export interface GainNodeLike extends AudioNodeLike {
@@ -38,6 +41,8 @@ export interface BiquadFilterNodeLike extends AudioNodeLike {
   type: BiquadFilterType;
   frequency: AudioParamLike;
   Q: AudioParamLike;
+  /** Boost or cut in dB, for the peaking and shelving types. */
+  gain: AudioParamLike;
 }
 
 /** A transfer-curve node; the Tone Player's output ceiling is one. */
