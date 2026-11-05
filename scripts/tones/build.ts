@@ -9,8 +9,9 @@ import { checkToneAssets, type ToneAssets } from '../../src/tones/toneAssets';
 import { encodeMp3, requireFfmpeg } from './ffmpeg';
 import type { Recipe } from './recipe';
 import { accordion } from './recipes/accordion';
+import { grandPiano } from './recipes/grandPiano';
 
-const RECIPES: Recipe[] = [accordion];
+const RECIPES: Recipe[] = [grandPiano, accordion];
 const TONES_DIR = fileURLToPath(new URL('../../src/tones', import.meta.url));
 
 async function buildTone(recipe: Recipe): Promise<boolean> {

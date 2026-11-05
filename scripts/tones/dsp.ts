@@ -53,6 +53,18 @@ export function fadeOut(channels: Channels, frames: number): Channels {
 }
 
 /**
+ * Caps a long tail: audio longer than `frames` is cut to it, with a linear fade to
+ * silence over its last `fadeFrames`. Audio already within the cap is kept whole.
+ */
+export function capTail(channels: Channels, frames: number, fadeFrames: number): Channels {
+  if ((channels[0]?.length ?? 0) <= frames) return channels.map((c) => c.slice());
+  return fadeOut(
+    channels.map((c) => c.slice(0, frames)),
+    fadeFrames,
+  );
+}
+
+/**
  * Bakes an equal-power crossfade into a loop, so jumping from `loopEnd` (exclusive)
  * back to `loopStart` is seamless. The `frames` before the loop end fade out while the
  * `frames` before the loop start fade in over them, so the last looped frame is the

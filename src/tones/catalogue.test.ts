@@ -14,6 +14,21 @@ describe('the Tone catalogue', () => {
     });
   });
 
+  it('holds the sampled Grand Piano under Classical, crediting Salamander as CC BY 3.0 asks', () => {
+    expect(toneById('grand-piano')).toEqual({
+      id: 'grand-piano',
+      name: 'Grand Piano',
+      genre: 'Classical',
+      kind: 'sampled',
+      gainDb: -7,
+      releaseSeconds: 0.35,
+      attackSeconds: 0.002,
+      velocityTracking: 0.45,
+      credit: 'Salamander Grand Piano by Alexander Holm, CC BY 3.0, trimmed and re-encoded.',
+      assets: 'grand-piano',
+    });
+  });
+
   it('holds the sampled Accordion under Cumbia, at its fixed gain and envelope', () => {
     expect(toneById('accordion')).toEqual({
       id: 'accordion',
@@ -48,7 +63,10 @@ describe('toneMenu', () => {
   it('lists Warm Analog first, then one group per Genre that has Tones', () => {
     expect(toneMenu()).toEqual({
       first: { id: 'warm-analog', name: 'Warm Analog' },
-      groups: [{ genre: 'Cumbia', tones: [{ id: 'accordion', name: 'Accordion' }] }],
+      groups: [
+        { genre: 'Classical', tones: [{ id: 'grand-piano', name: 'Grand Piano' }] },
+        { genre: 'Cumbia', tones: [{ id: 'accordion', name: 'Accordion' }] },
+      ],
     });
   });
 

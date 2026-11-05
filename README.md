@@ -118,6 +118,11 @@ for the domain vocabulary (Scene, Overlay, Crystal, etc.) and
 The sampled Tones are built from these redistributable sample sets. CC0 sets are
 credited as a courtesy.
 
+- **Grand Piano**: [Salamander Grand Piano V3](https://github.com/sfzinstruments/SalamanderGrandPiano),
+  a Yamaha C5 recorded by Alexander Holm, mapped to SFZ by kinwie.
+  [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/). Three of its 16
+  velocity layers, leading silence trimmed, tails cut at 5 s with a short
+  fade-out, and re-encoded as MP3.
 - **Accordion**: [FreePats Button Accordion HN](https://github.com/freepats/button-accordion-HN),
   a Hohner accordion recorded by Jeff Stauffer, made into a sound bank by
   michael02022 for the [FreePats project](https://freepats.zenvoid.org/).
