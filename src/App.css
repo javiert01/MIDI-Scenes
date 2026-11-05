@@ -286,6 +286,15 @@
   margin-top: 8px;
 }
 
+.sound-strip-credit a {
+  color: inherit;
+  text-decoration: underline;
+}
+
+.sound-strip-credit a:hover {
+  color: var(--accent);
+}
+
 .sound-strip-download {
   margin-top: 8px;
 }

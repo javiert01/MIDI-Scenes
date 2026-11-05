@@ -47,6 +47,19 @@ export const TONES: readonly ToneDefinition[] = [
     velocityTracking: 0,
   },
   {
+    id: 'grand-piano',
+    name: 'Grand Piano',
+    genre: 'Classical',
+    kind: 'sampled',
+    gainDb: -7,
+    releaseSeconds: 0.35,
+    attackSeconds: 0.002,
+    velocityTracking: 0.45,
+    // Salamander is CC BY 3.0, the one source that asks for attribution.
+    credit: 'Salamander Grand Piano by Alexander Holm, CC BY 3.0, trimmed and re-encoded.',
+    assets: 'grand-piano',
+  },
+  {
     id: 'accordion',
     name: 'Accordion',
     genre: 'Cumbia',

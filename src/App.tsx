@@ -265,6 +265,17 @@ function SoundStrip({ engine }: { engine: VisualizerEngine }) {
           </select>
         </label>
       )}
+      {strip.credit && (
+        <p className="field-hint sound-strip-credit">
+          {strip.credit.before}
+          {strip.credit.licence && (
+            <a href={strip.credit.licence.href} target="_blank" rel="noreferrer">
+              {strip.credit.licence.label}
+            </a>
+          )}
+          {strip.credit.after}
+        </p>
+      )}
       {strip.download?.kind === 'progress' && (
         <div className="sound-strip-download">
           <div
