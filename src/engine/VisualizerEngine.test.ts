@@ -3812,6 +3812,239 @@ describe('VisualizerEngine Tones', () => {
     expect(loads[0].options.signal?.aborted).toBe(true);
   });
 
+  describe('download progress', () => {
+    it('reports files done out of the total as they arrive, telling subscribers', () => {
+      const { engine, loads } = setUpEngine();
+      const listener = vi.fn();
+      engine.subscribe(listener);
+      engine.selectTone('accordion');
+      expect(engine.toneLoadProgress).toBeNull();
+      listener.mockClear();
+
+      loads[0].options.onProgress?.(0, 34);
+      loads[0].options.onProgress?.(12, 34);
+
+      expect(engine.toneLoadProgress).toEqual({ filesDone: 12, filesTotal: 34 });
+      expect(listener).toHaveBeenCalledTimes(2);
+    });
+
+    it('clears once the Tone is ready, or has failed', async () => {
+      const { engine, loads } = setUpEngine();
+      engine.selectTone('accordion');
+      loads[0].options.onProgress?.(34, 34);
+      loads[0].resolve(DECODED);
+      await flushMicrotasks();
+      expect(engine.toneLoadProgress).toBeNull();
+
+      engine.selectTone('warm-analog');
+      engine.selectTone('accordion');
+      loads[1].options.onProgress?.(3, 34);
+      loads[1].reject(new Error('404'));
+      await flushMicrotasks();
+      expect(engine.toneLoadProgress).toBeNull();
+    });
+  });
+
+  describe('a newer pick', () => {
+    it('aborts a load still running, so the latest pick wins', async () => {
+      const { engine, audio, loads } = setUpEngine();
+      engine.selectTone('accordion');
+      engine.selectTone('warm-analog');
+      engine.selectTone('accordion');
+
+      expect(loads).toHaveLength(2);
+      expect(loads[0].options.signal?.aborted).toBe(true);
+      expect(loads[1].options.signal?.aborted).toBe(false);
+
+      // The replaced load reporting or failing late changes nothing.
+      loads[0].options.onProgress?.(30, 34);
+      loads[0].reject(new Error('aborted'));
+      await flushMicrotasks();
+      expect(engine.toneStatus).toBe('loading');
+      expect(engine.toneLoadProgress).toBeNull();
+
+      loads[1].resolve(DECODED);
+      await flushMicrotasks();
+      expect(engine.toneStatus).toBe('ready');
+      expect(sounds(audio, 'KeyA')).toBe('sampled');
+    });
+
+    it('clears the progress of the load it replaced', () => {
+      const { engine, loads } = setUpEngine();
+      engine.selectTone('accordion');
+      loads[0].options.onProgress?.(12, 34);
+
+      engine.selectTone('warm-analog');
+
+      expect(engine.toneLoadProgress).toBeNull();
+    });
+  });
+
+  describe('Retry', () => {
+    async function failedAccordion(audio?: SpyAudioContext) {
+      const setup = setUpEngine({ audio });
+      setup.engine.selectTone('accordion');
+      setup.loads[0].reject(new Error('404'));
+      await flushMicrotasks();
+      return setup;
+    }
+
+    it('loads the failed Tone again, and it takes over once ready', async () => {
+      const { engine, audio, loads } = await failedAccordion();
+      const listener = vi.fn();
+      engine.subscribe(listener);
+
+      engine.retryTone();
+
+      expect(loads.map((l) => l.tone.id)).toEqual(['accordion', 'accordion']);
+      expect(engine.toneStatus).toBe('loading');
+      expect(listener).toHaveBeenCalled();
+      loads[1].resolve(DECODED);
+      await flushMicrotasks();
+      expect(engine.toneStatus).toBe('ready');
+      expect(sounds(audio, 'KeyA')).toBe('sampled');
+    });
+
+    it('can fail again, offering Retry once more', async () => {
+      const { engine, loads } = await failedAccordion();
+
+      engine.retryTone();
+      loads[1].reject(new Error('offline'));
+      await flushMicrotasks();
+
+      expect(engine.toneStatus).toBe('failed');
+    });
+
+    it('is a gesture: it resumes audio', async () => {
+      const audio = new SpyAudioContext();
+      const { engine } = await failedAccordion(audio);
+      audio.state = 'suspended';
+      const resumes = audio.resumeCalls;
+
+      engine.retryTone();
+
+      expect(audio.resumeCalls).toBe(resumes + 1);
+    });
+
+    it('stays offered across sound going Off and back on, and downloads nothing while Off', async () => {
+      const { engine, loads } = await failedAccordion();
+
+      engine.setSoundGates({ soundEnabled: false, deviceSoundEnabled: false });
+      engine.retryTone();
+      expect(loads).toHaveLength(1);
+
+      engine.setSoundGates({ soundEnabled: true, deviceSoundEnabled: false });
+      expect(engine.toneStatus).toBe('failed');
+      engine.retryTone();
+      expect(loads).toHaveLength(2);
+    });
+
+    it('does nothing unless the selected Tone failed', async () => {
+      const { engine, loads } = setUpEngine();
+      engine.retryTone();
+      engine.selectTone('accordion');
+      engine.retryTone();
+      expect(loads).toHaveLength(1);
+
+      loads[0].resolve(DECODED);
+      await flushMicrotasks();
+      engine.retryTone();
+      expect(loads).toHaveLength(1);
+    });
+  });
+
+  describe('downloaded Tones', () => {
+    it('lists each sampled Tone once it has loaded, and keeps it after switching away', async () => {
+      const { engine, loads } = setUpEngine();
+      expect(engine.downloadedToneIds).toEqual([]);
+
+      engine.selectTone('accordion');
+      expect(engine.downloadedToneIds).toEqual([]);
+      loads[0].resolve(DECODED);
+      await flushMicrotasks();
+      expect(engine.downloadedToneIds).toEqual(['accordion']);
+
+      engine.selectTone('warm-analog');
+      expect(engine.downloadedToneIds).toEqual(['accordion']);
+    });
+
+    it('leaves out a Tone whose download failed', async () => {
+      const { engine, loads } = setUpEngine();
+      engine.selectTone('accordion');
+      loads[0].reject(new Error('404'));
+      await flushMicrotasks();
+
+      expect(engine.downloadedToneIds).toEqual([]);
+    });
+  });
+
+  describe('at startup', () => {
+    function reload(fields: Record<string, unknown>) {
+      const audio = new SpyAudioContext();
+      audio.state = 'suspended'; // no gesture yet, so the browser holds it suspended
+      const contexts: unknown[] = [];
+      const { loader, calls } = fakeToneLoader();
+      const { factory } = stubP5Factory();
+      const engine = new VisualizerEngine(document.createElement('div'), {
+        createP5: factory,
+        storage: savedStorage(fields),
+        createAudioContext: (options) => {
+          contexts.push(options);
+          return audio;
+        },
+        loadTone: loader,
+      });
+      engines.push(engine);
+      return { engine, audio, loads: calls, contexts };
+    }
+
+    it('creates the AudioContext suspended and downloads and decodes a saved sampled Tone at once', async () => {
+      const { engine, audio, loads, contexts } = reload({ toneId: 'accordion' });
+
+      expect(contexts).toHaveLength(1);
+      expect(engine.audioSuspended).toBe(true);
+      expect(audio.resumeCalls).toBe(0);
+      expect(loads.map((l) => l.tone.id)).toEqual(['accordion']);
+      expect(engine.toneStatus).toBe('loading');
+
+      // Decoding works on the suspended context: no gesture is needed for it.
+      await loads[0].options.decode(new ArrayBuffer(4));
+      expect(audio.decodeCalls).toBe(1);
+      loads[0].resolve(DECODED);
+      await flushMicrotasks();
+      expect(engine.toneStatus).toBe('ready');
+      expect(contexts).toHaveLength(1);
+    });
+
+    it('lets the first click or key press resume audio, and the saved Tone is then heard', async () => {
+      const { engine, audio, loads } = reload({ toneId: 'accordion' });
+      loads[0].resolve(DECODED);
+      await flushMicrotasks();
+
+      window.dispatchEvent(new Event('pointerdown'));
+      await flushMicrotasks();
+
+      expect(audio.resumeCalls).toBe(1);
+      expect(engine.audioSuspended).toBe(false);
+      engine.setVirtualInputEnabled(true);
+      expect(sounds(audio, 'KeyA')).toBe('sampled');
+    });
+
+    it('downloads nothing and creates no AudioContext with sound Off saved', () => {
+      const { engine, loads, contexts } = reload({
+        toneId: 'accordion',
+        soundEnabled: false,
+        deviceSoundEnabled: false,
+      });
+
+      window.dispatchEvent(new Event('pointerdown'));
+
+      expect(loads).toHaveLength(0);
+      expect(contexts).toHaveLength(0);
+      expect(engine.toneStatus).toBe('idle');
+    });
+  });
+
   describe('the saved Tone', () => {
     it('saves the pick as toneId', () => {
       const { engine, storage } = setUpEngine();

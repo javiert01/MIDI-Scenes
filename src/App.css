@@ -286,6 +286,24 @@
   margin-top: 8px;
 }
 
+.sound-strip-download {
+  margin-top: 8px;
+}
+
+.sound-strip-progress {
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(
+    to right,
+    var(--accent) calc(var(--fraction) * 100%),
+    var(--border) calc(var(--fraction) * 100%)
+  );
+}
+
+.sound-strip-failed {
+  color: var(--warning);
+}
+
 .device-card-notice,
 .device-toast {
   font-size: 12px;

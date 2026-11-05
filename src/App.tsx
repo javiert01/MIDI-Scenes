@@ -204,12 +204,18 @@ function useSoundStrip(engine: VisualizerEngine): SoundStripView {
   const audioSuspended = useEngineValue(engine, (e) => e.audioSuspended);
   const outputLatencyMs = useEngineValue(engine, (e) => e.audioOutputLatencyMs);
   const toneId = useEngineValue(engine, (e) => e.toneId);
+  const toneStatus = useEngineValue(engine, (e) => e.toneStatus);
+  const toneProgress = useEngineValue(engine, (e) => e.toneLoadProgress);
+  const downloadedToneIds = useEngineValue(engine, (e) => e.downloadedToneIds);
   return describeSoundStrip({
     soundEnabled,
     deviceSoundEnabled,
     audioSuspended,
     outputLatencyMs,
     toneId,
+    toneStatus,
+    toneProgress,
+    downloadedToneIds,
   });
 }
 
@@ -245,19 +251,43 @@ function SoundStrip({ engine }: { engine: VisualizerEngine }) {
             }}
           >
             <option value={strip.tonePicker.menu.first.id}>
-              {strip.tonePicker.menu.first.name}
+              {strip.tonePicker.menu.first.label}
             </option>
             {strip.tonePicker.menu.groups.map((group) => (
               <optgroup key={group.genre} label={group.genre}>
                 {group.tones.map((tone) => (
                   <option key={tone.id} value={tone.id}>
-                    {tone.name}
+                    {tone.label}
                   </option>
                 ))}
               </optgroup>
             ))}
           </select>
         </label>
+      )}
+      {strip.download?.kind === 'progress' && (
+        <div className="sound-strip-download">
+          <div
+            className="sound-strip-progress"
+            role="progressbar"
+            aria-label="Tone download"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(strip.download.fraction * 100)}
+            style={{ '--fraction': strip.download.fraction } as CSSProperties}
+          />
+          <p className="field-hint" aria-live="polite">
+            {strip.download.text}
+          </p>
+        </div>
+      )}
+      {strip.download?.kind === 'failed' && (
+        <p className="field-hint sound-strip-failed" role="alert">
+          {strip.download.text}{' '}
+          <button type="button" className="text-button" onClick={() => engine.retryTone()}>
+            Retry
+          </button>
+        </p>
       )}
       {strip.latencyHint && <p className="field-hint">{strip.latencyHint}</p>}
     </section>

@@ -80,6 +80,12 @@ const SYNTH_TONES: Record<string, Tone> = { [WARM_ANALOG.id]: WARM_ANALOG };
  */
 export type ToneStatus = 'idle' | 'loading' | 'ready' | 'failed';
 
+/** How far a sampled Tone's download has got: files in, out of its total. Decoding starts once all are in. */
+export interface ToneLoadProgress {
+  filesDone: number;
+  filesTotal: number;
+}
+
 /** Single versioned key holding the whole remembered setup (Scene, params, Device, etc). */
 export const STORAGE_KEY = 'midiviz.v1';
 
@@ -284,6 +290,11 @@ export class VisualizerEngine {
   private readonly loadTone: ToneLoader;
   // The sampled Tone load still running, if any. A newer pick aborts it.
   private toneLoad: AbortController | null = null;
+  // How far that load has got, once it has reported.
+  private toneLoadProgressState: ToneLoadProgress | null = null;
+  // Sampled Tones loaded this session. The HTTP cache holds their files from
+  // then on, so picking one again downloads nothing new.
+  private downloadedToneIdsState: readonly string[] = [];
   // The Holds of the sources that sound: both Virtual Input surfaces share the
   // Tone Player's one `virtual` source, so a voice ends only on its note's last
   // sounding Hold. Kept apart from `notes` because what sounds and what shows can
@@ -590,6 +601,29 @@ export class VisualizerEngine {
     return this.toneStatusState;
   }
 
+  /** How far the selected sampled Tone's download has got, or null when none is running or nothing has come in yet. */
+  get toneLoadProgress(): ToneLoadProgress | null {
+    return this.toneLoadProgressState;
+  }
+
+  /** The sampled Tones loaded this session, so already in the browser's cache. */
+  get downloadedToneIds(): readonly string[] {
+    return this.downloadedToneIdsState;
+  }
+
+  /**
+   * Loads the selected Tone again after its download failed, as the Sound
+   * strip's Retry does. Retrying is a gesture, so it resumes audio too. Does
+   * nothing unless the selected Tone failed, or while sound is Off, when
+   * nothing downloads.
+   */
+  retryTone(): void {
+    if (this.toneStatusState !== 'failed' || !this.soundIsOn) return;
+    this.tonePlayer.start();
+    this.startToneLoad(toneById(this.toneIdState));
+    this.notify();
+  }
+
   /**
    * Picks the Tone notes sound with, as the Sound strip's dropdown does. Picking
    * is a gesture, so it creates and resumes audio. A sampled Tone starts loading,
@@ -620,8 +654,7 @@ export class VisualizerEngine {
    * while sound is on.
    */
   private applyTone(): void {
-    this.toneLoad?.abort();
-    this.toneLoad = null;
+    this.cancelToneLoad();
     const tone = toneById(this.toneIdState);
     if (tone.kind === 'synth') {
       this.tonePlayer.setTone(SYNTH_TONES[tone.id] ?? WARM_ANALOG);
@@ -633,30 +666,51 @@ export class VisualizerEngine {
     if (this.soundIsOn) this.startToneLoad(tone);
   }
 
-  /** Downloads and decodes a sampled Tone, then hands it to the Tone Player, unless a newer pick replaced it. */
+  /**
+   * Downloads and decodes a sampled Tone, reporting progress, then hands it to
+   * the Tone Player. A load a newer pick replaced is aborted, and anything it
+   * reports afterwards is ignored, so the latest pick always wins.
+   */
   private startToneLoad(tone: ToneDefinition): void {
+    this.cancelToneLoad();
     const load = new AbortController();
     this.toneLoad = load;
     this.toneStatusState = 'loading';
     const current = () => load === this.toneLoad && !this.destroyed;
+    const settle = (status: ToneStatus) => {
+      this.toneLoad = null;
+      this.toneLoadProgressState = null;
+      this.toneStatusState = status;
+      this.notify();
+    };
     this.loadTone(tone, {
       decode: (data) => this.tonePlayer.decodeAudioData(data),
       signal: load.signal,
+      onProgress: (filesDone, filesTotal) => {
+        if (!current()) return;
+        this.toneLoadProgressState = { filesDone, filesTotal };
+        this.notify();
+      },
     }).then(
       (decoded) => {
         if (!current()) return;
-        this.toneLoad = null;
         this.tonePlayer.setTone(createSampledTone(tone, decoded));
-        this.toneStatusState = 'ready';
-        this.notify();
+        if (!this.downloadedToneIdsState.includes(tone.id)) {
+          this.downloadedToneIdsState = [...this.downloadedToneIdsState, tone.id];
+        }
+        settle('ready');
       },
       () => {
-        if (!current()) return;
-        this.toneLoad = null;
-        this.toneStatusState = 'failed';
-        this.notify();
+        if (current()) settle('failed');
       },
     );
+  }
+
+  /** Aborts the sampled Tone load still running, if any, forgetting its progress. */
+  private cancelToneLoad(): void {
+    this.toneLoad?.abort();
+    this.toneLoad = null;
+    this.toneLoadProgressState = null;
   }
 
   /** Bumped on every dispatched note-on/off; sidebar can diff it to flash an activity indicator. */
@@ -872,8 +926,7 @@ export class VisualizerEngine {
       this.tonePlayer.silenceAll();
       // Nothing downloads while sound is Off: a load still running waits for sound to come back.
       if (this.toneLoad) {
-        this.toneLoad.abort();
-        this.toneLoad = null;
+        this.cancelToneLoad();
         this.toneStatusState = 'idle';
       }
     } else {
