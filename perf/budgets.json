@@ -1,0 +1,21 @@
+{
+  "$comment": "Hand-edited thresholds for the performance workbench (perf/README.md). baseline.json holds the measured draw-call baseline and is rewritten by `npm run perf:update`.",
+  "frame": {
+    "$comment": "p95 cost of one frame (update + draw + raster) in software-rendered headless Chromium at 1600x800. 16.7 ms is a whole 60 fps frame.",
+    "p95Ms": 16.7
+  },
+  "regression": {
+    "$comment": "Against the base branch, measured on the same machine in the same run. A case fails only when it is both this much slower in % and in ms.",
+    "medianPct": 20,
+    "minDeltaMs": 0.4
+  },
+  "drawCalls": {
+    "$comment": "Drawing calls per frame may grow this much over baseline.json before failing.",
+    "tolerancePct": 10
+  },
+  "bundle": {
+    "$comment": "Gzipped JS + CSS the app ships (sampled Tones' MP3s excluded: they load on demand).",
+    "maxGzipKb": 460,
+    "maxGrowthPct": 10
+  }
+}

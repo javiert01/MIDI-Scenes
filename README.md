@@ -92,7 +92,13 @@ npm run dev      # start the dev server
 npm test         # run the test suite
 npm run lint     # lint + format check
 npm run build    # typecheck and build for production
+npm run perf     # performance workbench: frame cost, draw calls, bundle size
 ```
+
+Every pull request runs the [performance workbench](perf/README.md) in CI. It
+fails when a change pushes a frame over budget, makes a Scene slower than the
+branch it targets, or makes a Scene draw more than its recorded baseline. If a
+Scene is meant to get heavier, re-record the baseline with `npm run perf:update`.
 
 Sampled Tones' MP3s and `regions.json` files are built offline and committed, so
 neither `npm run build` nor a deploy needs ffmpeg or any sample download. To

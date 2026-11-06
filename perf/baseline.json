@@ -1,0 +1,25 @@
+{
+  "$comment": "Mean drawing calls per frame for each Scene/Workload, recorded by `npm run perf:update`. Deterministic: review changes here like a snapshot.",
+  "drawCalls": {
+    "greatHall/chords": 1713,
+    "greatHall/idle": 1030.2,
+    "greatHall/melody": 1245.8,
+    "greatHall/storm": 2550,
+    "none/chords": 673.5,
+    "none/idle": 96,
+    "none/melody": 267.3,
+    "none/storm": 1442.6,
+    "rain/chords": 831.3,
+    "rain/idle": 247,
+    "rain/melody": 425.4,
+    "rain/storm": 1613.6,
+    "starfield/chords": 857.9,
+    "starfield/idle": 281.4,
+    "starfield/melody": 453.4,
+    "starfield/storm": 1626.9,
+    "underwater/chords": 7173.5,
+    "underwater/idle": 6596,
+    "underwater/melody": 6767.5,
+    "underwater/storm": 7942.6
+  }
+}
