@@ -7,6 +7,7 @@ const NOOP_P5: Partial<P5Like> = {
   noStroke: () => {},
   stroke: () => {},
   strokeWeight: () => {},
+  strokeCap: () => {},
   line: () => {},
   fill: () => {},
   rect: () => {},
@@ -47,6 +48,7 @@ class RecordingP5 implements Partial<P5Like> {
   noStroke = () => {};
   stroke = (...args: number[]) => this.calls.push({ name: 'stroke', args });
   strokeWeight = () => {};
+  strokeCap = () => {};
   line = (...args: number[]) => this.calls.push({ name: 'line', args });
   fill = (...args: number[]) => this.calls.push({ name: 'fill', args });
   rect = (...args: number[]) => this.calls.push({ name: 'rect', args });
@@ -90,19 +92,22 @@ class ExtentP5 implements Partial<P5Like> {
   strokeWeight = (weight: number) => {
     this.weight = weight;
   };
+  strokeCap = () => {};
   line = (x1: number, y1: number, x2: number, y2: number) => {
     this.reach(x1, y1, this.weight / 2);
     this.reach(x2, y2, this.weight / 2);
     this.longestLine = Math.max(this.longestLine, Math.hypot(x2 - x1, y2 - y1));
   };
   ellipse = (x: number, y: number, w: number, h: number) => this.reach(x, y, Math.max(w, h) / 2);
+  rect = (x: number, y: number, w: number, h: number) => this.reach(x + w, y + h, 0);
   triangle = (x1: number, y1: number, x2: number, y2: number, x3: number, y3: number) => {
     this.reach(x1, y1, 0);
     this.reach(x2, y2, 0);
     this.reach(x3, y3, 0);
   };
   beginShape = () => {};
-  vertex = (x: number, y: number) => this.reach(x, y, 0);
+  // Tentacles and arms are stroked as shapes, so a vertex may carry half a stroke's width.
+  vertex = (x: number, y: number) => this.reach(x, y, this.weight / 2);
   endShape = () => {};
   push = () => {
     this.stack.push({ ...this.matrix });
@@ -368,9 +373,45 @@ describe('UnderwaterScene', () => {
 
     scene.draw(ctx);
 
-    const lineYs = p.calls.filter((c) => c.name === 'line').map((c) => c.args[1] as number);
-    expect(lineYs.length).toBeGreaterThan(0);
-    for (const y of lineYs) expect(y).toBeLessThan(visHeight);
+    const bands = p.calls.filter((c) => c.name === 'rect').map((c) => c.args as number[]);
+    expect(bands.length).toBeGreaterThan(0);
+    for (const [, y, , h] of bands) expect(y + h).toBeLessThanOrEqual(visHeight);
+  });
+
+  it('paints the water as whole-color bands that tile the area, not a line per row', () => {
+    const scene = new UnderwaterScene();
+    const p = new RecordingP5();
+    // A height that is not a whole number of pixels, as the engine's split usually gives.
+    const ctx = makeCtx({
+      p: p as unknown as P5Like,
+      width: 1600,
+      height: 800,
+      chromaKeyHeight: 800 / 3,
+      params: { fishCount: 0, jellyfishCount: 0 },
+    });
+    scene.setup(ctx);
+    const visHeight = ctx.height - ctx.chromaKeyHeight;
+
+    scene.draw(ctx);
+
+    const bands = p.calls.filter((c) => c.name === 'rect').map((c) => c.args as number[]);
+    const fills = p.calls.filter((c) => c.name === 'fill').map((c) => c.args as number[]);
+    expect(bands.length).toBeLessThan(visHeight / 3);
+    expect(fills).toHaveLength(bands.length);
+
+    let edge = 0;
+    bands.forEach(([x, y, w, h], i) => {
+      expect([x, y, w]).toEqual([0, edge, ctx.width]);
+      expect(h).toBeGreaterThan(0);
+      edge = y + h;
+      // Each band is one color the canvas can show, and differs from the band above.
+      for (const channel of fills[i].slice(0, 3)) expect(Number.isInteger(channel)).toBe(true);
+      if (i > 0) expect(fills[i].slice(0, 3)).not.toEqual(fills[i - 1].slice(0, 3));
+    });
+    expect(edge).toBeCloseTo(visHeight, 9);
+    // Surface color at the top (#145573), darkening with depth.
+    expect(fills[0].slice(0, 3)).toEqual([20, 85, 115]);
+    expect(fills[fills.length - 1][2]).toBeLessThan(fills[0][2]);
   });
 
   it('draws the engine crystals via the seam, after the water and before the creatures', () => {
@@ -389,11 +430,12 @@ describe('UnderwaterScene', () => {
 
     expect(drawCrystals).toHaveBeenCalledTimes(1);
     const crystalsAt = p.calls.findIndex((c) => c.name === 'crystals');
-    const lastWaterLineAt = p.calls
-      .map((c) => c.name === 'line' && c.args[2] === ctx.width)
+    const lastWaterBandAt = p.calls
+      .map((c) => c.name === 'rect' && c.args[2] === ctx.width)
       .lastIndexOf(true);
     const firstCreatureAt = p.calls.findIndex((c) => c.name === 'ellipse' || c.name === 'triangle');
-    expect(crystalsAt).toBeGreaterThan(lastWaterLineAt); // after the water
+    expect(lastWaterBandAt).toBeGreaterThanOrEqual(0);
+    expect(crystalsAt).toBeGreaterThan(lastWaterBandAt); // after the water
     expect(crystalsAt).toBeLessThan(firstCreatureAt); // before the fish/jellyfish
   });
 

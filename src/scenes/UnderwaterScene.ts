@@ -15,6 +15,8 @@ const DEFAULT_FISH_COUNT = 20;
 const DEFAULT_JELLYFISH_COUNT = 10;
 const DEFAULT_CREATURE_SPEED = 1;
 const DEFAULT_WATER_COLOR = '#145573';
+/** Alpha of the water gradient; see drawWaterBackground. */
+const WATER_OPACITY = 191;
 
 const PI = Math.PI;
 const TWO_PI = Math.PI * 2;
@@ -382,17 +384,16 @@ function drawFishTail(
   p.vertex(baseX - size * FISH_TAIL_LENGTH * 0.6, baseY + sway * 0.6 + spread * 0.62);
   p.endShape('close');
 
+  p.noFill();
   p.stroke(pale[0], pale[1], pale[2], 70);
   p.strokeWeight(Math.max(0.4, size * 0.025));
+  p.beginShape();
   for (const ray of FISH_TAIL_RAYS) {
     const lobe = 0.62 + Math.abs(ray) * 0.34;
-    p.line(
-      baseX,
-      baseY,
-      baseX - size * FISH_TAIL_LENGTH * lobe,
-      baseY + sway * lobe + ray * spread * lobe,
-    );
+    p.vertex(baseX, baseY, true);
+    p.vertex(baseX - size * FISH_TAIL_LENGTH * lobe, baseY + sway * lobe + ray * spread * lobe);
   }
+  p.endShape();
 }
 
 /**
@@ -424,8 +425,8 @@ function drawFish(p: P5Like, fish: Fish): void {
   p.rotate(fish.direction);
 
   p.noStroke();
+  p.fill(r, g, b, (4 + 12 * fish.boost) * depth);
   for (const spread of FISH_GLOW) {
-    p.fill(r, g, b, (4 + 12 * fish.boost) * depth);
     p.ellipse(-size * 0.1, 0, size * spread, size * spread * 0.6);
   }
 
@@ -451,16 +452,18 @@ function drawFish(p: P5Like, fish: Fish): void {
   p.strokeWeight(Math.max(0.5, size * 0.045));
   traceFishStrip(p, halfLength, halfDepth, -1, 1);
 
-  // Lateral line and gill cover.
+  // Lateral line and gill cover, one shape of three strokes.
   p.stroke(pale[0], pale[1], pale[2], 75 * depth);
   p.strokeWeight(Math.max(0.4, size * 0.025));
   p.beginShape();
   for (let i = 3; i <= FISH_BODY_SEGMENTS; i++) p.vertex(fishBodyX(i, halfLength), fishSpine[i]);
-  p.endShape();
   const gillX = fishBodyX(3, halfLength);
   const gillY = halfDepth * FISH_PROFILE[3] * 0.62;
-  p.line(gillX + size * 0.05, fishSpine[3] - gillY, gillX - size * 0.06, fishSpine[3]);
-  p.line(gillX - size * 0.06, fishSpine[3], gillX + size * 0.05, fishSpine[3] + gillY);
+  p.vertex(gillX + size * 0.05, fishSpine[3] - gillY, true);
+  p.vertex(gillX - size * 0.06, fishSpine[3]);
+  p.vertex(gillX - size * 0.06, fishSpine[3], true);
+  p.vertex(gillX + size * 0.05, fishSpine[3] + gillY);
+  p.endShape();
 
   // Pectoral fin, flapping at half the tail's beat.
   const finX = fishBodyX(4, halfLength);
@@ -726,58 +729,71 @@ function traceBell(p: P5Like, radius: number, height: number, tuck: number, scal
   p.endShape('close');
 }
 
+/**
+ * Each tentacle fades and thins toward its tip, so segments are drawn a ring at a
+ * time: the j-th segment of every tentacle shares one style, and is stroked as one
+ * shape of separate sub-paths rather than a line call each.
+ */
 function drawTentacles(p: P5Like, jelly: Jellyfish, depth: number, pale: RgbColor): void {
   const { chain, size, tentacleCount } = jelly;
+  p.noFill();
   for (let j = 0; j < TENTACLE_POINTS - 1; j++) {
     const fade = 1 - j / (TENTACLE_POINTS - 1);
     p.stroke(pale[0], pale[1], pale[2], 110 * depth * fade);
     p.strokeWeight(Math.max(0.5, size * 0.035 * fade));
+    p.beginShape();
     for (let k = 0; k < tentacleCount; k++) {
       const i = (k * TENTACLE_POINTS + j) * 2;
-      p.line(chain[i], chain[i + 1], chain[i + 2], chain[i + 3]);
+      p.vertex(chain[i], chain[i + 1], true);
+      p.vertex(chain[i + 2], chain[i + 3]);
     }
+    p.endShape();
   }
 }
 
-/** Oral arms: a pair of ruffled edges either side of each chain, like a frilled ribbon. */
+/**
+ * Oral arms: a pair of ruffled edges either side of each chain, like a frilled
+ * ribbon. As with the tentacles, the j-th segment of every edge shares a style and
+ * is stroked in one shape.
+ */
 function drawArms(p: P5Like, jelly: Jellyfish, depth: number, pale: RgbColor): void {
   const { chain, size, swayPhase, tentacleCount } = jelly;
   const armsStart = tentacleCount * TENTACLE_POINTS * 2;
   const frill = size * ARM_FRILL;
-  for (let edge = -1; edge <= 1; edge += 2) {
-    for (let a = 0; a < ARM_COUNT; a++) {
-      const start = armsStart + a * ARM_POINTS * 2;
-      for (let j = 0; j < ARM_POINTS - 1; j++) {
-        const i = start + j * 2;
+  p.noFill();
+  for (let j = 0; j < ARM_POINTS - 1; j++) {
+    const taper = 1 - j / (ARM_POINTS - 1);
+    p.stroke(pale[0], pale[1], pale[2], (55 + 95 * taper) * depth);
+    p.strokeWeight(Math.max(0.6, size * 0.06 * taper));
+    // An arm's two edges overlap, and overlaps within one shape do not build up, so
+    // each edge is its own shape: that keeps the doubled brightness of the ruffles.
+    for (let edge = -1; edge <= 1; edge += 2) {
+      p.beginShape();
+      for (let a = 0; a < ARM_COUNT; a++) {
+        const i = armsStart + a * ARM_POINTS * 2 + j * 2;
         const dx = chain[i + 2] - chain[i];
         const dy = chain[i + 3] - chain[i + 1];
         const d = Math.hypot(dx, dy) || 1;
         const nx = -dy / d;
         const ny = dx / d;
-        const taper = 1 - j / (ARM_POINTS - 1);
         const ruffleA = edge * frill * taper * (0.6 + 0.4 * Math.sin(j * 2.3 + swayPhase * 2 + a));
         const ruffleB =
           edge *
           frill *
           (taper - 1 / (ARM_POINTS - 1)) *
           (0.6 + 0.4 * Math.sin((j + 1) * 2.3 + swayPhase * 2 + a));
-        p.stroke(pale[0], pale[1], pale[2], (55 + 95 * taper) * depth);
-        p.strokeWeight(Math.max(0.6, size * 0.06 * taper));
-        p.line(
-          chain[i] + nx * ruffleA,
-          chain[i + 1] + ny * ruffleA,
-          chain[i + 2] + nx * ruffleB,
-          chain[i + 3] + ny * ruffleB,
-        );
+        p.vertex(chain[i] + nx * ruffleA, chain[i + 1] + ny * ruffleA, true);
+        p.vertex(chain[i + 2] + nx * ruffleB, chain[i + 3] + ny * ruffleB);
       }
+      p.endShape();
     }
   }
 }
 
 /** Lines from the apex to the margin, following the dome: the veins seen through the bell. */
 function drawRadialCanals(p: P5Like, radius: number, height: number, tuck: number): void {
+  p.beginShape();
   for (const across of RADIAL_CANALS) {
-    p.beginShape();
     for (let i = 0; i <= RADIAL_CANAL_SEGMENTS; i++) {
       const t = (i / RADIAL_CANAL_SEGMENTS) * (PI / 2);
       const down = i / RADIAL_CANAL_SEGMENTS;
@@ -786,10 +802,11 @@ function drawRadialCanals(p: P5Like, radius: number, height: number, tuck: numbe
         -height *
           Math.pow(Math.cos(t), 0.85) *
           (1 - BELL_MARGIN_ARCH * (1 - across * across) * down),
+        i === 0,
       );
     }
-    p.endShape();
   }
+  p.endShape();
 }
 
 /**
@@ -809,16 +826,20 @@ function drawJellyfish(p: P5Like, jelly: Jellyfish): void {
   const pale: RgbColor = [r + (255 - r) * 0.55, g + (255 - g) * 0.55, b + (255 - b) * 0.55];
 
   p.push();
+  // Square-ended segments cost less to rasterise than round ones, and at these
+  // widths the caps are lost where segments meet.
+  p.strokeCap('butt');
   drawTentacles(p, jelly, depth, pale);
   drawArms(p, jelly, depth, pale);
+  p.strokeCap('round');
 
   p.translate(jelly.x, jelly.y);
   p.rotate(jelly.tilt);
 
   p.noStroke();
   // Stacked faint discs read as a soft glow without a costly blur; a note brightens it.
+  p.fill(r, g, b, (6 + 8 * jelly.boost) * depth);
   for (const spread of JELLYFISH_GLOW) {
-    p.fill(r, g, b, (6 + 8 * jelly.boost) * depth);
     p.ellipse(0, -height * 0.45, radius * spread, height * spread);
   }
 
@@ -863,17 +884,39 @@ function resizePopulation<T>(items: T[], targetLength: number, spawn: () => T): 
   if (items.length > targetLength) items.length = targetLength;
 }
 
+/**
+ * A vertical gradient from the surface color down to a deep tint. The canvas only
+ * shows whole 8-bit colors, so consecutive rows that round to the same color are
+ * painted as one band: about a hundred rects instead of a line per row.
+ *
+ * The water was once a 1px line per row. Each line straddled two pixel rows at half
+ * coverage, so a quarter of the engine's dark background showed through everywhere.
+ * WATER_OPACITY keeps that deeper look.
+ */
 function drawWaterBackground(p: P5Like, { width, visHeight }: Bounds, surface: RgbColor): void {
   const [r0, g0, b0] = surface;
   const [r1, g1, b1] = [r0 * 0.25, g0 * 0.41, b0 * 0.48];
-  p.strokeWeight(1);
-  for (let y = 0; y < visHeight; y++) {
-    const inter = visHeight > 0 ? y / visHeight : 0;
-    const r = r0 + (r1 - r0) * inter;
-    const g = g0 + (g1 - g0) * inter;
-    const b = b0 + (b1 - b0) * inter;
-    p.stroke(r, g, b);
-    p.line(0, y, width, y);
+  p.noStroke();
+  let bandTop = 0;
+  let bandColor = -1;
+  const rows = Math.ceil(visHeight);
+  for (let y = 0; y <= rows; y++) {
+    let color = -1;
+    if (y < rows) {
+      const inter = y / visHeight;
+      color =
+        (Math.round(r0 + (r1 - r0) * inter) << 16) |
+        (Math.round(g0 + (g1 - g0) * inter) << 8) |
+        Math.round(b0 + (b1 - b0) * inter);
+    }
+    if (color === bandColor) continue;
+    if (bandColor >= 0) {
+      p.fill(bandColor >> 16, (bandColor >> 8) & 0xff, bandColor & 0xff, WATER_OPACITY);
+      // The area's height is rarely whole: the last band stops at its edge.
+      p.rect(0, bandTop, width, Math.min(y, visHeight) - bandTop);
+    }
+    bandTop = y;
+    bandColor = color;
   }
 }
 
