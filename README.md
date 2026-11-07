@@ -129,6 +129,24 @@ credited as a courtesy.
   [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/). Three of its 16
   velocity layers, leading silence trimmed, tails cut at 5 s with a short
   fade-out, and re-encoded as MP3.
+- **Strings**: [VS Chamber Orchestra: Community Edition (VSCO 2 CE)](https://github.com/sgossner/VSCO-2-CE)
+  by Versilian Studios, recorded by Sam Gossner and Simon Dalzell
+  ([homepage](http://vis.versilstudios.net/vsco-community.html)).
+  [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/). The Cello Section
+  below C4 and the Violin Section from C4, sustained vibrato. Leading silence
+  trimmed, a crossfade loop baked into each sample, and re-encoded as MP3.
+- **Overdriven Guitar**: FreePats Electric Guitar FSBS,
+  [Distorted #2](https://github.com/freepats/electric-guitar-FSBS-dist2) below C4
+  and [Clean #1 small](https://github.com/freepats/electric-guitar-FSBS-clean) from
+  C4, from the [FreePats project](https://freepats.zenvoid.org/).
+  [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/). One round robin,
+  an amp drive baked into the clean notes and their level matched at C4, leading
+  silence trimmed, tails cut at 8 s with a short fade-out, and re-encoded as MP3.
+- **Rock Organ**: [FreePats Rock Organ Emulation](https://freepats.zenvoid.org/Organ/electric-organ.html),
+  rendered from the [setBfree](http://setbfree.org/) organ synthesiser by the Strix
+  SoundFont Team. [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/).
+  Each note's left and right samples merged into one stereo file with a crossfaded
+  loop, leading silence trimmed, and re-encoded as MP3.
 - **Accordion**: [FreePats Button Accordion HN](https://github.com/freepats/button-accordion-HN),
   a Hohner accordion recorded by Jeff Stauffer, made into a sound bank by
   michael02022 for the [FreePats project](https://freepats.zenvoid.org/).

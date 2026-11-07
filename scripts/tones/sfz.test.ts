@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseSfz, regionFromSfz, sfzKey, widenToCover } from './sfz';
+import { keyRange, parseSfz, regionFromSfz, sfzKey, widenToCover } from './sfz';
 import type { ToneRegion } from '../../src/tones/toneAssets';
 
 describe('sfzKey', () => {
@@ -59,6 +59,23 @@ describe('parseSfz', () => {
       <region> sample=a.wav tune=-5
     `);
     expect(region).toMatchObject({ default_path: 'Samples/', volume: '-3', tune: '-5' });
+  });
+});
+
+describe('keyRange', () => {
+  it('reads lokey and hikey', () => {
+    expect(keyRange({ lokey: 'c4', hikey: '64', pitch_keycenter: '62' })).toEqual({
+      lo: 60,
+      hi: 64,
+    });
+  });
+
+  it('reads `key` as both ends when lokey and hikey are missing', () => {
+    expect(keyRange({ key: 'g5' })).toEqual({ lo: 79, hi: 79 });
+  });
+
+  it('falls back to the keycentre', () => {
+    expect(keyRange({ pitch_keycenter: '48' })).toEqual({ lo: 48, hi: 48 });
   });
 });
 

@@ -1,0 +1,273 @@
+{
+  "toneId": "rock-organ",
+  "sources": [
+    {
+      "name": "FreePats Rock Organ Emulation",
+      "url": "https://freepats.zenvoid.org/Organ/RockOrganEmulation/RockOrganEmulation-SFZ-20190715.tar.xz",
+      "pin": {
+        "sha256": "07321d9498dc31982c44ea9483919df3f426e3d392a15bb2947b0e3fe247f718"
+      },
+      "licence": "CC0-1.0",
+      "author": "Strix SoundFont Team (samples, rendered from setBfree), FreePats",
+      "changes": "Each note's left and right samples merged into one stereo file, looping from the later of their two loop starts to the earlier end, with a 100 ms equal-power crossfade baked in at the seam and the audio after the loop cut. Leading silence trimmed (−48 dBFS, 1 ms kept). Re-encoded as 128 kbps MP3, loop points moved to match."
+    }
+  ],
+  "regions": [
+    {
+      "file": "C2.mp3",
+      "keycentre": 36,
+      "keyLo": 31,
+      "keyHi": 37,
+      "velLo": 1,
+      "velHi": 127,
+      "tune": 0,
+      "gainDb": 0,
+      "pan": 0,
+      "loop": {
+        "start": 1.5722448979591837,
+        "end": 6.940181405895691
+      },
+      "release": false
+    },
+    {
+      "file": "E2.mp3",
+      "keycentre": 40,
+      "keyLo": 38,
+      "keyHi": 41,
+      "velLo": 1,
+      "velHi": 127,
+      "tune": 0,
+      "gainDb": 0,
+      "pan": 0,
+      "loop": {
+        "start": 3.2055328798185942,
+        "end": 6.385396825396826
+      },
+      "release": false
+    },
+    {
+      "file": "Gs2.mp3",
+      "keycentre": 44,
+      "keyLo": 42,
+      "keyHi": 45,
+      "velLo": 1,
+      "velHi": 127,
+      "tune": 0,
+      "gainDb": 0,
+      "pan": 0,
+      "loop": {
+        "start": 1.1036961451247165,
+        "end": 4.967278911564626
+      },
+      "release": false
+    },
+    {
+      "file": "C3.mp3",
+      "keycentre": 48,
+      "keyLo": 46,
+      "keyHi": 49,
+      "velLo": 1,
+      "velHi": 127,
+      "tune": 0,
+      "gainDb": 0,
+      "pan": 0,
+      "loop": {
+        "start": 1.311315192743764,
+        "end": 5.057437641723356
+      },
+      "release": false
+    },
+    {
+      "file": "E3.mp3",
+      "keycentre": 52,
+      "keyLo": 50,
+      "keyHi": 53,
+      "velLo": 1,
+      "velHi": 127,
+      "tune": 0,
+      "gainDb": 0,
+      "pan": 0,
+      "loop": {
+        "start": 1.2876190476190477,
+        "end": 4.455850340136054
+      },
+      "release": false
+    },
+    {
+      "file": "G3.mp3",
+      "keycentre": 55,
+      "keyLo": 54,
+      "keyHi": 57,
+      "velLo": 1,
+      "velHi": 127,
+      "tune": 0,
+      "gainDb": 0,
+      "pan": 0,
+      "loop": {
+        "start": 2.653424036281179,
+        "end": 5.336462585034013
+      },
+      "release": false
+    },
+    {
+      "file": "C4.mp3",
+      "keycentre": 60,
+      "keyLo": 58,
+      "keyHi": 61,
+      "velLo": 1,
+      "velHi": 127,
+      "tune": 0,
+      "gainDb": 0,
+      "pan": 0,
+      "loop": {
+        "start": 2.3951473922902493,
+        "end": 5.407845804988662
+      },
+      "release": false
+    },
+    {
+      "file": "E4.mp3",
+      "keycentre": 64,
+      "keyLo": 62,
+      "keyHi": 66,
+      "velLo": 1,
+      "velHi": 127,
+      "tune": 0,
+      "gainDb": 0,
+      "pan": 0,
+      "loop": {
+        "start": 2.573083900226757,
+        "end": 5.40718820861678
+      },
+      "release": false
+    },
+    {
+      "file": "Gs4.mp3",
+      "keycentre": 68,
+      "keyLo": 67,
+      "keyHi": 70,
+      "velLo": 1,
+      "velHi": 127,
+      "tune": 0,
+      "gainDb": 0,
+      "pan": 0,
+      "loop": {
+        "start": 3.3294784580498864,
+        "end": 5.174716553287982
+      },
+      "release": false
+    },
+    {
+      "file": "C5.mp3",
+      "keycentre": 72,
+      "keyLo": 71,
+      "keyHi": 73,
+      "velLo": 1,
+      "velHi": 127,
+      "tune": 0,
+      "gainDb": 0,
+      "pan": 0,
+      "loop": {
+        "start": 2.412018140589569,
+        "end": 3.7347392290249433
+      },
+      "release": false
+    },
+    {
+      "file": "E5.mp3",
+      "keycentre": 76,
+      "keyLo": 74,
+      "keyHi": 78,
+      "velLo": 1,
+      "velHi": 127,
+      "tune": 0,
+      "gainDb": 0,
+      "pan": 0,
+      "loop": {
+        "start": 2.4505668934240363,
+        "end": 4.292743764172336
+      },
+      "release": false
+    },
+    {
+      "file": "Gs5.mp3",
+      "keycentre": 80,
+      "keyLo": 79,
+      "keyHi": 82,
+      "velLo": 1,
+      "velHi": 127,
+      "tune": 0,
+      "gainDb": 0,
+      "pan": 0,
+      "loop": {
+        "start": 2.407142857142857,
+        "end": 3.966893424036281
+      },
+      "release": false
+    },
+    {
+      "file": "C6.mp3",
+      "keycentre": 84,
+      "keyLo": 83,
+      "keyHi": 85,
+      "velLo": 1,
+      "velHi": 127,
+      "tune": 0,
+      "gainDb": 0,
+      "pan": 0,
+      "loop": {
+        "start": 2.6570068027210882,
+        "end": 4.497981859410431
+      },
+      "release": false
+    },
+    {
+      "file": "E6.mp3",
+      "keycentre": 88,
+      "keyLo": 86,
+      "keyHi": 89,
+      "velLo": 1,
+      "velHi": 127,
+      "tune": 0,
+      "gainDb": 0,
+      "pan": 0,
+      "loop": {
+        "start": 1.3049433106575963,
+        "end": 3.2894104308390024
+      },
+      "release": false
+    },
+    {
+      "file": "Gs6.mp3",
+      "keycentre": 92,
+      "keyLo": 90,
+      "keyHi": 94,
+      "velLo": 1,
+      "velHi": 127,
+      "tune": 0,
+      "gainDb": 0,
+      "pan": 0,
+      "loop": {
+        "start": 2.158707482993197,
+        "end": 4.283333333333333
+      },
+      "release": false
+    },
+    {
+      "file": "C7.mp3",
+      "keycentre": 96,
+      "keyLo": 95,
+      "keyHi": 108,
+      "velLo": 1,
+      "velHi": 127,
+      "tune": 0,
+      "gainDb": 0,
+      "pan": 0,
+      "loop": {
+        "start": 2.0224943310657597,
+        "end": 4.0069160997732425
+      },
+      "release": false
+    }
+  ]
+}

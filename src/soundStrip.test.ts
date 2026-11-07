@@ -79,7 +79,20 @@ describe('the Tone dropdown', () => {
     expect(describeSoundStrip(state()).tonePicker?.menu).toEqual({
       first: { id: 'warm-analog', label: 'Warm Analog' },
       groups: [
-        { genre: 'Classical', tones: [{ id: 'grand-piano', label: 'Grand Piano (7 MB)' }] },
+        {
+          genre: 'Classical',
+          tones: [
+            { id: 'grand-piano', label: 'Grand Piano (7 MB)' },
+            { id: 'strings', label: 'Strings (6 MB)' },
+          ],
+        },
+        {
+          genre: 'Rock',
+          tones: [
+            { id: 'overdriven-guitar', label: 'Overdriven Guitar (3 MB)' },
+            { id: 'rock-organ', label: 'Rock Organ (1 MB)' },
+          ],
+        },
         {
           genre: 'Cumbia',
           tones: [

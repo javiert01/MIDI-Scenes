@@ -60,6 +60,20 @@ export function sfzKey(value: string): number {
   return NOTE_OFFSETS[m[1]] + accidental + (Number(m[3]) + 1) * 12;
 }
 
+/** The key an SFZ region's sample was recorded at: `pitch_keycenter`, or `key`, or C4. */
+function keycentreOpcode(op: SfzOpcodes): string {
+  return op.pitch_keycenter ?? op.key ?? '60';
+}
+
+/** The keys an SFZ region sounds on: lokey..hikey, or `key`, or just its keycentre. */
+export function keyRange(op: SfzOpcodes): { lo: number; hi: number } {
+  const keycentre = keycentreOpcode(op);
+  return {
+    lo: sfzKey(op.lokey ?? op.key ?? keycentre),
+    hi: sfzKey(op.hikey ?? op.key ?? keycentre),
+  };
+}
+
 const LOOPING_MODES = ['loop_continuous', 'loop_sustain'];
 
 /**
@@ -71,7 +85,7 @@ export function regionFromSfz(
   op: SfzOpcodes,
   { file, cut, sampleRate }: { file: string; cut: number; sampleRate: number },
 ): ToneRegion {
-  const keycentre = sfzKey(op.pitch_keycenter ?? op.key ?? '60');
+  const keycentre = sfzKey(keycentreOpcode(op));
   const opcodeNumber = (name: string, fallback: number) =>
     op[name] === undefined ? fallback : Number(op[name]);
 
@@ -85,11 +99,12 @@ export function regionFromSfz(
     loop = { start: (start - cut) / sampleRate, end: (Number(op.loop_end) + 1 - cut) / sampleRate };
   }
 
+  const keys = keyRange(op);
   return {
     file,
     keycentre,
-    keyLo: sfzKey(op.lokey ?? op.key ?? String(keycentre)),
-    keyHi: sfzKey(op.hikey ?? op.key ?? String(keycentre)),
+    keyLo: keys.lo,
+    keyHi: keys.hi,
     velLo: Math.max(1, opcodeNumber('lovel', 1)),
     velHi: opcodeNumber('hivel', 127),
     tune: opcodeNumber('tune', 0),

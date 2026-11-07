@@ -10,8 +10,11 @@ import { encodeMp3, requireFfmpeg } from './ffmpeg';
 import type { Recipe } from './recipe';
 import { accordion } from './recipes/accordion';
 import { grandPiano } from './recipes/grandPiano';
+import { overdrivenGuitar } from './recipes/overdrivenGuitar';
+import { rockOrgan } from './recipes/rockOrgan';
+import { strings } from './recipes/strings';
 
-const RECIPES: Recipe[] = [grandPiano, accordion];
+const RECIPES: Recipe[] = [grandPiano, strings, overdrivenGuitar, rockOrgan, accordion];
 const TONES_DIR = fileURLToPath(new URL('../../src/tones', import.meta.url));
 
 async function buildTone(recipe: Recipe): Promise<boolean> {

@@ -43,6 +43,48 @@ describe('the Tone catalogue', () => {
     });
   });
 
+  it('holds the sampled Strings under Classical, slow to speak and slow to fall away', () => {
+    expect(toneById('strings')).toEqual({
+      id: 'strings',
+      name: 'Strings',
+      genre: 'Classical',
+      kind: 'sampled',
+      gainDb: -10.5,
+      releaseSeconds: 0.6,
+      attackSeconds: 0.008,
+      velocityTracking: 0.35,
+      assets: 'strings',
+    });
+  });
+
+  it('holds the sampled Overdriven Guitar under Rock, at its fixed gain and envelope', () => {
+    expect(toneById('overdriven-guitar')).toEqual({
+      id: 'overdriven-guitar',
+      name: 'Overdriven Guitar',
+      genre: 'Rock',
+      kind: 'sampled',
+      gainDb: -19,
+      releaseSeconds: 0.25,
+      attackSeconds: 0.002,
+      velocityTracking: 0.35,
+      assets: 'overdriven-guitar',
+    });
+  });
+
+  it('holds the sampled Rock Organ under Rock, ignoring velocity as an organ does', () => {
+    expect(toneById('rock-organ')).toEqual({
+      id: 'rock-organ',
+      name: 'Rock Organ',
+      genre: 'Rock',
+      kind: 'sampled',
+      gainDb: -19,
+      releaseSeconds: 0.08,
+      attackSeconds: 0.002,
+      velocityTracking: 0,
+      assets: 'rock-organ',
+    });
+  });
+
   it('holds the synthesised Villera Lead under Cumbia, with its own velocity response and no download', () => {
     expect(toneById('villera-lead')).toEqual({
       id: 'villera-lead',
@@ -77,7 +119,20 @@ describe('toneMenu', () => {
     expect(toneMenu()).toEqual({
       first: { id: 'warm-analog', name: 'Warm Analog' },
       groups: [
-        { genre: 'Classical', tones: [{ id: 'grand-piano', name: 'Grand Piano' }] },
+        {
+          genre: 'Classical',
+          tones: [
+            { id: 'grand-piano', name: 'Grand Piano' },
+            { id: 'strings', name: 'Strings' },
+          ],
+        },
+        {
+          genre: 'Rock',
+          tones: [
+            { id: 'overdriven-guitar', name: 'Overdriven Guitar' },
+            { id: 'rock-organ', name: 'Rock Organ' },
+          ],
+        },
         {
           genre: 'Cumbia',
           tones: [
