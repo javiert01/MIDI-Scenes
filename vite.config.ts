@@ -1,5 +1,5 @@
-/// <reference types="vitest/config" />
-import { defineConfig, type Plugin } from 'vite';
+import { configDefaults, defineConfig } from 'vitest/config';
+import type { Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import { statSync } from 'node:fs';
 import path from 'node:path';
@@ -13,7 +13,7 @@ const dirname = path.dirname(fileURLToPath(import.meta.url));
  * than written by hand. Runs before Vite's asset handling, which would
  * otherwise answer with the file's URL.
  */
-function fileBytes(): Plugin {
+export function fileBytes(): Plugin {
   return {
     name: 'file-bytes',
     enforce: 'pre',
@@ -41,5 +41,8 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     globals: false,
+    // perf/.out/ holds the performance workbench's base checkout; .claude/ holds
+    // local agent worktrees. Neither is this checkout's suite.
+    exclude: [...configDefaults.exclude, 'perf/.out/**', '.claude/**'],
   },
 });

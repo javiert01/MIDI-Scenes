@@ -8,3 +8,7 @@ dist/
 .claude
 .agents
 .cache/
+
+# Performance workbench builds and base checkouts
+perf/.out/
+perf-report.*

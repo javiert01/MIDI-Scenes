@@ -1,0 +1,84 @@
+# The performance workbench (perf/README.md) on every pull request and every
+# push to main. It fails when a change pushes a frame over budget, makes a Scene
+# slower than the base it would merge into, makes a Scene draw more than its
+# recorded baseline, or grows the shipped bundle too much.
+name: Performance
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: perf-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  perf:
+    name: Performance budget
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The base commit is checked out alongside for a side-by-side run.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Cache Playwright's Chromium
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install Chromium
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+
+      - name: Install Chromium's system dependencies
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+
+      - name: Run the performance workbench
+        env:
+          # A pull request compares against the branch it targets; a push to
+          # main against the main it replaced. Empty (a new branch): budgets only.
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ -z "$BASE_SHA" ] || [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
+            npm run perf -- --markdown perf-report.md --json perf-report.json
+          else
+            npm run perf -- --base-ref "$BASE_SHA" --markdown perf-report.md --json perf-report.json
+          fi
+
+      - name: Publish the report to the job summary
+        if: always() && hashFiles('perf-report.md') != ''
+        run: cat perf-report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Comment the report on the pull request
+        if: always() && github.event_name == 'pull_request' && hashFiles('perf-report.md') != ''
+        # A fork's pull request gets a read-only token; the job summary still has the report.
+        continue-on-error: true
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: performance
+          path: perf-report.md
+
+      - name: Keep the raw measurements
+        if: always() && hashFiles('perf-report.json') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-report
+          path: perf-report.json

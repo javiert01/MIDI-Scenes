@@ -9,7 +9,9 @@
     "preview": "vite preview",
     "test": "vitest run",
     "lint": "eslint . && prettier --check .",
-    "tones:build": "vite-node scripts/tones/build.ts"
+    "tones:build": "vite-node scripts/tones/build.ts",
+    "perf": "vite-node perf/run.ts --",
+    "perf:update": "vite-node perf/run.ts -- --update"
   },
   "dependencies": {
     "@vercel/analytics": "^2.0.1",
@@ -31,6 +33,7 @@
     "eslint-plugin-react-refresh": "^0.4.9",
     "globals": "^15.9.0",
     "jsdom": "^24.1.1",
+    "playwright": "^1.65.0",
     "prettier": "^3.3.3",
     "typescript": "^5.5.4",
     "typescript-eslint": "^8.0.1",

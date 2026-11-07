@@ -72,6 +72,10 @@ class StubP5 implements P5Like {
     this.calls.push({ name: 'strokeWeight', args: [weight] });
   }
 
+  strokeCap(cap: string) {
+    this.calls.push({ name: 'strokeCap', args: [cap] });
+  }
+
   background(...args: number[]) {
     this.calls.push({ name: 'background', args });
   }
