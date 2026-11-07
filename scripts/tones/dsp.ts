@@ -226,7 +226,11 @@ const OVERSAMPLE_HALF_TAPS = 16;
 
 /**
  * A low-pass at the original Nyquist, for the oversampled rate: a Blackman-windowed
- * sinc, cut off just below it so the transition band is above the audio.
+ * sinc cut off at 0.45 of the original rate. It is short, so its transition band
+ * reaches down into the top octave: at 4× and 44.1 kHz one pass is about −0.7 dB at
+ * 18 kHz and −7 dB at 20 kHz. Curve harmonics just above the original Nyquist are cut
+ * by only about 28 dB before they alias. That is fine for a guitar cab that low-passes
+ * at 4.6 kHz afterwards.
  */
 function oversampleKernel(factor: number): Float64Array {
   const half = OVERSAMPLE_HALF_TAPS * factor;

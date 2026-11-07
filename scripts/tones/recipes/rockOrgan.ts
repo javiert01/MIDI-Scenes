@@ -48,8 +48,10 @@ export const rockOrgan: Recipe = {
 
       // The later start, so the loop holds only audio both sides loop over. SFZ's
       // loop_end is the loop's last frame; `end` here is exclusive.
-      const start = Math.max(Number(L.loop_start), Number(R.loop_start));
-      const end = Math.min(Number(L.loop_end), Number(R.loop_end)) + 1;
+      const points = [L.loop_start, R.loop_start, L.loop_end, R.loop_end].map(Number);
+      if (!points.every(Number.isInteger)) throw new Error(`${note}: both sides need loop points`);
+      const start = Math.max(points[0], points[1]);
+      const end = Math.min(points[2], points[3]) + 1;
       const looped = equalPowerLoopCrossfade(
         mergeToStereo(left.channels, right.channels),
         start,
@@ -73,7 +75,8 @@ export const rockOrgan: Recipe = {
       sources: [
         {
           name: 'FreePats Rock Organ Emulation',
-          url: 'https://freepats.zenvoid.org/Organ/electric-organ.html',
+          // The archive itself, so the SHA-256 below says which bytes it covers.
+          url: SET.url,
           pin: { sha256: SET.sha256 },
           licence: 'CC0-1.0',
           author: 'Strix SoundFont Team (samples, rendered from setBfree), FreePats',

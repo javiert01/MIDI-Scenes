@@ -136,10 +136,13 @@ export const overdrivenGuitar: Recipe = {
       high.push({ ...note, region: { ...note.region, keyLo: Math.max(note.region.keyLo, SPLIT) } });
     }
 
+    // Each note's opening as it is heard, with its region's SFZ volume applied.
     const matchFrames = (notes: Note[]) =>
-      notes.map((n) =>
-        n.audio.channels.map((c) => c.slice(0, Math.round(MATCH_SECONDS * n.audio.sampleRate))),
-      );
+      notes.map((n) => {
+        const gain = 10 ** (n.region.gainDb / 20);
+        const frames = Math.round(MATCH_SECONDS * n.audio.sampleRate);
+        return n.audio.channels.map((c) => c.slice(0, frames).map((x) => x * gain));
+      });
     const offsetDb = levelMatchDb(
       matchFrames(nearestSplit(low, true, MATCH_NOTES)),
       matchFrames(nearestSplit(high, false, MATCH_NOTES)),

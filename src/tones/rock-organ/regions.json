@@ -3,7 +3,7 @@
   "sources": [
     {
       "name": "FreePats Rock Organ Emulation",
-      "url": "https://freepats.zenvoid.org/Organ/electric-organ.html",
+      "url": "https://freepats.zenvoid.org/Organ/RockOrganEmulation/RockOrganEmulation-SFZ-20190715.tar.xz",
       "pin": {
         "sha256": "07321d9498dc31982c44ea9483919df3f426e3d392a15bb2947b0e3fe247f718"
       },
