@@ -1,6 +1,10 @@
 {
   "$comment": "Mean drawing calls per frame for each Scene/Workload, recorded by `npm run perf:update`. Deterministic: review changes here like a snapshot.",
   "drawCalls": {
+    "galaxy/chords": 4914,
+    "galaxy/idle": 4094,
+    "galaxy/melody": 4501.5,
+    "galaxy/storm": 5754.4,
     "greatHall/chords": 1713,
     "greatHall/idle": 1030.2,
     "greatHall/melody": 1245.8,
