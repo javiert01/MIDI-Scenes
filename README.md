@@ -14,6 +14,8 @@ built for recording alongside piano-hands footage.
   - **Rain**: falling rain and ripples, with a new drop at each key you press
   - **Hogwarts Castle**: candles, clouds, and owls, where each note flares the
     candle nearest its key
+  - **Snowfall**: a snowy Christmas night of pines strung with fairy lights,
+    where each note lights up the nearest tree and shakes a flurry loose
   - **No Scene**: just the background and Overlays, for a minimal composition
 - **Crystals** — a luminous glass rod grows from the column under whichever key
   you're holding, on every Scene, then falls and dissolves into rising Dust

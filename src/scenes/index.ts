@@ -4,6 +4,7 @@ import { UnderwaterScene } from './UnderwaterScene';
 import { RainScene } from './RainScene';
 import { HogwartsCastleScene } from './HogwartsCastleScene';
 import { GalaxyScene } from './GalaxyScene';
+import { SnowfallScene } from './SnowfallScene';
 
 /** Fresh Scene instances for a new engine — Scenes hold mutable per-instance state. */
 export function createDefaultScenes(): Scene[] {
@@ -13,5 +14,6 @@ export function createDefaultScenes(): Scene[] {
     new RainScene(),
     new HogwartsCastleScene(),
     new GalaxyScene(),
+    new SnowfallScene(),
   ];
 }
