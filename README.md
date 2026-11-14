@@ -12,7 +12,7 @@ built for recording alongside piano-hands footage.
     playing's velocity and position on the keyboard
   - **Starfield**: a reactive starfield
   - **Rain**: falling rain and ripples, with a new drop at each key you press
-  - **Great Hall**: candles, clouds, and owls, where each note flares the
+  - **Hogwarts Castle**: candles, clouds, and owls, where each note flares the
     candle nearest its key
   - **No Scene**: just the background and Overlays, for a minimal composition
 - **Crystals** — a luminous glass rod grows from the column under whichever key

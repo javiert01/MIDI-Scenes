@@ -208,7 +208,7 @@ function wrapHorizontal(x: number, margin: number, width: number): number {
 /**
  * 1D value noise standing in for p5's noise() (P5Like exposes no noise):
  * smooth-interpolated hashed lattice values, per the Perlin-noise intro of
- * The Nature of Code (§I.5). Drives the cloud drift and the flame flicker.
+ * The Nature of Code (§I.5). Drives the cloud wander and the flame flicker.
  */
 function valueNoise(t: number): number {
   const i = Math.floor(t);
@@ -230,20 +230,40 @@ interface CloudPuff {
   h: number;
 }
 
+const CLOUD_BASE_WIDTH = 220;
+const CLOUD_MAX_SCALE = 1.3;
+/**
+ * How far past either edge a cloud travels before it wraps: wide enough that
+ * the largest cloud is fully out of sight when it jumps to the other side.
+ */
+const CLOUD_WRAP_MARGIN = CLOUD_BASE_WIDTH * CLOUD_MAX_SCALE;
+/** Drift shared by every cloud, px/frame — one speed, so none ever catches another up. */
+const CLOUD_SPEED = 0.3;
+/** How far a cloud wanders off its slot, as a fraction of the gap between two slots. */
+const CLOUD_SWAY = 0.15;
+/** The band of sky the clouds sit in, as fractions of the visualization height. */
+const CLOUD_BAND_TOP = 0.08;
+const CLOUD_BAND_BOTTOM = 0.4;
+
 interface Cloud {
   x: number;
   y: number;
-  /** Baseline drift in px/frame; noise wobbles around it so no two clouds move alike. */
-  speed: number;
-  /** Offsets this cloud's noise samples so each cloud drifts independently. */
+  /**
+   * Where the cloud's slot is along the wrapping track, in [0, 1). The slots
+   * are spread evenly and all advance together, so the clouds stay apart.
+   */
+  phase: number;
+  /** The most the cloud wanders either side of its slot, in px. */
+  sway: number;
+  /** Offsets this cloud's noise samples so each cloud wanders independently. */
   seed: number;
   width: number;
   puffs: CloudPuff[];
 }
 
-function spawnCloud({ width, visHeight }: Bounds): Cloud {
-  const scale = randomRange(0.7, 1.3);
-  const cloudWidth = 220 * scale;
+function spawnCloud(): Cloud {
+  const scale = randomRange(0.7, CLOUD_MAX_SCALE);
+  const cloudWidth = CLOUD_BASE_WIDTH * scale;
   const puffCount = 6;
   const puffs: CloudPuff[] = [];
   for (let i = 0; i < puffCount; i++) {
@@ -256,24 +276,52 @@ function spawnCloud({ width, visHeight }: Bounds): Cloud {
       h: randomRange(45, 70) * scale,
     });
   }
-  return {
-    x: randomRange(0, width),
-    y: randomRange(visHeight * 0.08, visHeight * 0.4),
-    speed: randomRange(0.15, 0.45),
-    seed: randomRange(0, 1000),
-    width: cloudWidth,
-    puffs,
-  };
+  // Position is filled in by layoutClouds, which knows how many there are.
+  return { x: 0, y: 0, phase: 0, sway: 0, seed: randomRange(0, 1000), width: cloudWidth, puffs };
 }
 
 /**
- * Noise-driven horizontal drift — smooth wobble around a per-cloud base speed,
- * the noise-mapped motion of The Nature of Code §I.5.
+ * Spreads the clouds evenly over the sky: one slot each along the wrapping
+ * track, and one height band each (dealt out in shuffled order, so neighbours
+ * don't line up in a staircase). The first cloud keeps its place on the track,
+ * so a Cloud Count change re-spaces the rest around it.
  */
-function updateCloud(cloud: Cloud, { width }: Bounds, timeMs: number): void {
-  const wobble = (valueNoise(cloud.seed + timeMs * 0.0002) - 0.5) * 0.8;
-  cloud.x += cloud.speed + wobble;
-  cloud.x = wrapHorizontal(cloud.x, cloud.width, width);
+function layoutClouds(clouds: Cloud[], bounds: Bounds, timeMs: number): void {
+  const count = clouds.length;
+  if (count === 0) return;
+  const start = clouds[0].sway > 0 ? clouds[0].phase : Math.random();
+  const bands = clouds.map((_, i) => i);
+  for (let i = count - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [bands[i], bands[j]] = [bands[j], bands[i]];
+  }
+  const span = bounds.width + CLOUD_WRAP_MARGIN * 2;
+  const bandHeight = ((CLOUD_BAND_BOTTOM - CLOUD_BAND_TOP) * bounds.visHeight) / count;
+  clouds.forEach((cloud, i) => {
+    cloud.phase = (start + i / count) % 1;
+    cloud.sway = (span / count) * CLOUD_SWAY;
+    cloud.y = CLOUD_BAND_TOP * bounds.visHeight + bandHeight * (bands[i] + Math.random());
+    placeCloud(cloud, bounds, timeMs);
+  });
+}
+
+/** Puts the cloud at its slot, nudged by its noise-driven wander. */
+function placeCloud(cloud: Cloud, { width }: Bounds, timeMs: number): void {
+  const span = width + CLOUD_WRAP_MARGIN * 2;
+  const wander = (valueNoise(cloud.seed + timeMs * 0.00005) - 0.5) * 2 * cloud.sway;
+  cloud.x = cloud.phase * span - CLOUD_WRAP_MARGIN + wander;
+}
+
+/**
+ * Every cloud's slot advances at the same steady drift and wraps around the
+ * track; the cloud itself wanders a little around the slot on noise — the
+ * noise-mapped motion of The Nature of Code §I.5 — so they don't move as a
+ * rigid row.
+ */
+function updateCloud(cloud: Cloud, bounds: Bounds, timeMs: number): void {
+  const span = bounds.width + CLOUD_WRAP_MARGIN * 2;
+  cloud.phase = (cloud.phase + CLOUD_SPEED / span) % 1;
+  placeCloud(cloud, bounds, timeMs);
 }
 
 /** The pale tone a cloud's lit top tends toward; lightning pushes the whole cloud toward it. */
@@ -861,14 +909,14 @@ function drawSkyGradient(
 }
 
 /**
- * The Great Hall's enchanted ceiling: a slowly shifting storm sky, clouds
- * drifting on noise, silhouette owls flapping across, a towered castle on the
+ * Hogwarts Castle on a storm night: a slowly shifting storm sky, clouds
+ * drifting across it, silhouette owls flapping across, a towered castle on the
  * right, random lightning, and a row of levitating candles in the
  * foreground. Notes flare the candle at the key's column.
  */
-export class GreatHallScene implements Scene {
-  readonly id = 'greatHall';
-  readonly label = 'Great Hall';
+export class HogwartsCastleScene implements Scene {
+  readonly id = 'hogwartsCastle';
+  readonly label = 'Hogwarts Castle';
   readonly params: ParamSpec[] = [
     {
       key: 'candleCount',
@@ -941,7 +989,8 @@ export class GreatHallScene implements Scene {
     const cloudCount = Number(ctx.params.cloudCount ?? DEFAULT_CLOUD_COUNT);
     const owlCount = Number(ctx.params.owlCount ?? DEFAULT_OWL_COUNT);
 
-    this.clouds = Array.from({ length: cloudCount }, () => spawnCloud(bounds));
+    this.clouds = Array.from({ length: cloudCount }, spawnCloud);
+    layoutClouds(this.clouds, bounds, ctx.elapsed);
     this.owls = Array.from({ length: owlCount }, () => spawnOwl(bounds));
     this.candles = Array.from({ length: candleCount }, (_, i) =>
       spawnCandle(i, candleCount, bounds),
@@ -964,8 +1013,12 @@ export class GreatHallScene implements Scene {
         spawnCandle(i, candleCount, bounds),
       );
     }
-    while (this.clouds.length < cloudCount) this.clouds.push(spawnCloud(bounds));
-    if (this.clouds.length > cloudCount) this.clouds.length = cloudCount;
+    // Clouds are evenly spaced too, so a count change re-spaces them.
+    if (this.clouds.length !== cloudCount) {
+      while (this.clouds.length < cloudCount) this.clouds.push(spawnCloud());
+      this.clouds.length = cloudCount;
+      layoutClouds(this.clouds, bounds, ctx.elapsed);
+    }
 
     const owlCount = Number(ctx.params.owlCount ?? DEFAULT_OWL_COUNT);
     while (this.owls.length < owlCount) this.owls.push(spawnOwl(bounds));

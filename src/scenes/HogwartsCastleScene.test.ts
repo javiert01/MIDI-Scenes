@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { GreatHallScene } from '@/scenes/GreatHallScene';
+import { HogwartsCastleScene } from '@/scenes/HogwartsCastleScene';
 import type { SceneContext } from '@/engine/scene';
 import type { P5Like } from '@/engine/types';
 
@@ -74,23 +74,23 @@ type OwlInternal = {
 type FallingLetterInternal = { x: number; y: number; size: number };
 type MoteInternal = { x: number; y: number; vy: number; life: number };
 
-function motesOf(scene: GreatHallScene, kind: 'dust' | 'sparks'): MoteInternal[] {
+function motesOf(scene: HogwartsCastleScene, kind: 'dust' | 'sparks'): MoteInternal[] {
   return (scene as unknown as Record<'dust' | 'sparks', MoteInternal[]>)[kind];
 }
 
-function candlesOf(scene: GreatHallScene): CandleInternal[] {
+function candlesOf(scene: HogwartsCastleScene): CandleInternal[] {
   return (scene as unknown as { candles: CandleInternal[] }).candles;
 }
 
-function cloudsOf(scene: GreatHallScene): CloudInternal[] {
+function cloudsOf(scene: HogwartsCastleScene): CloudInternal[] {
   return (scene as unknown as { clouds: CloudInternal[] }).clouds;
 }
 
-function owlsOf(scene: GreatHallScene): OwlInternal[] {
+function owlsOf(scene: HogwartsCastleScene): OwlInternal[] {
   return (scene as unknown as { owls: OwlInternal[] }).owls;
 }
 
-function fallingLettersOf(scene: GreatHallScene): FallingLetterInternal[] {
+function fallingLettersOf(scene: HogwartsCastleScene): FallingLetterInternal[] {
   return (scene as unknown as { fallingLetters: FallingLetterInternal[] }).fallingLetters;
 }
 
@@ -130,7 +130,7 @@ function noteOn(note: number, velocity: number) {
   return { note, name: '', velocity, raw: Math.round(velocity * 127), channel: 1 };
 }
 
-describe('GreatHallScene', () => {
+describe('HogwartsCastleScene', () => {
   beforeEach(() => {
     vi.spyOn(Math, 'random').mockReturnValue(0.5);
   });
@@ -140,7 +140,7 @@ describe('GreatHallScene', () => {
   });
 
   it('populates candle and cloud counts from ctx.params on setup', () => {
-    const scene = new GreatHallScene();
+    const scene = new HogwartsCastleScene();
     scene.setup(makeCtx({ params: { candleCount: 6, cloudCount: 3 } }));
 
     expect(candlesOf(scene)).toHaveLength(6);
@@ -148,7 +148,7 @@ describe('GreatHallScene', () => {
   });
 
   it('grows or shrinks candle and cloud populations live as params change on update', () => {
-    const scene = new GreatHallScene();
+    const scene = new HogwartsCastleScene();
     const ctx = makeCtx({ params: { candleCount: 4, cloudCount: 2 } });
     scene.setup(ctx);
 
@@ -160,7 +160,7 @@ describe('GreatHallScene', () => {
   });
 
   it('keeps every candle — even at the bottom of its levitation bob — inside the visualization area', () => {
-    const scene = new GreatHallScene();
+    const scene = new HogwartsCastleScene();
     const ctx = makeCtx({ width: 900, height: 900, chromaKeyHeight: 300 });
     scene.setup(ctx);
 
@@ -172,7 +172,7 @@ describe('GreatHallScene', () => {
   });
 
   it('spawns clouds in the upper part of the visualization area, never in the chroma key band', () => {
-    const scene = new GreatHallScene();
+    const scene = new HogwartsCastleScene();
     const ctx = makeCtx({ width: 900, height: 900, chromaKeyHeight: 300 });
     scene.setup(ctx);
 
@@ -183,8 +183,103 @@ describe('GreatHallScene', () => {
     }
   });
 
+  describe('cloud spacing', () => {
+    const WIDTH = 900;
+    /** The wrapping track the clouds travel: the width plus the off-screen margin either side. */
+    const TRACK = WIDTH + 2 * 220 * 1.3;
+
+    /** The smallest distance along the wrapping track between any two clouds. */
+    function smallestGap(scene: HogwartsCastleScene): number {
+      const xs = cloudsOf(scene).map((cloud) => cloud.x);
+      let smallest = Infinity;
+      for (let i = 0; i < xs.length; i++) {
+        for (let j = i + 1; j < xs.length; j++) {
+          const d = Math.abs(xs[i] - xs[j]) % TRACK;
+          smallest = Math.min(smallest, d, TRACK - d);
+        }
+      }
+      return smallest;
+    }
+
+    /** Runs `frames` updates at 60fps, returning the smallest gap seen on any frame. */
+    function smallestGapOver(scene: HogwartsCastleScene, ctx: SceneContext, frames: number) {
+      let smallest = Infinity;
+      for (let i = 0; i < frames; i++) {
+        ctx.elapsed += 16;
+        scene.update(ctx);
+        smallest = Math.min(smallest, smallestGap(scene));
+      }
+      return smallest;
+    }
+
+    beforeEach(() => {
+      // Real randomness: the spacing has to hold however the clouds are dealt.
+      vi.restoreAllMocks();
+    });
+
+    it.each([2, 4, 6])('keeps %i clouds well apart for minutes on end', (cloudCount) => {
+      const scene = new HogwartsCastleScene();
+      const ctx = makeCtx({ width: WIDTH, params: { candleCount: 0, cloudCount, owlCount: 0 } });
+      scene.setup(ctx);
+
+      // Five minutes — long enough for every cloud to cross the sky and wrap.
+      const gap = smallestGapOver(scene, ctx, 5 * 60 * 60);
+
+      // Never closer than 70% of an even share of the track.
+      expect(gap).toBeGreaterThanOrEqual((TRACK / cloudCount) * 0.7 - 1e-6);
+    });
+
+    it('re-spaces the clouds when Cloud Count changes', () => {
+      const scene = new HogwartsCastleScene();
+      const ctx = makeCtx({ width: WIDTH, params: { candleCount: 0, cloudCount: 2, owlCount: 0 } });
+      scene.setup(ctx);
+      smallestGapOver(scene, ctx, 600);
+
+      ctx.params = { candleCount: 0, cloudCount: 5, owlCount: 0 };
+      const grown = smallestGapOver(scene, ctx, 3_000);
+      expect(grown).toBeGreaterThanOrEqual((TRACK / 5) * 0.7 - 1e-6);
+
+      ctx.params = { candleCount: 0, cloudCount: 3, owlCount: 0 };
+      const shrunk = smallestGapOver(scene, ctx, 3_000);
+      expect(shrunk).toBeGreaterThanOrEqual((TRACK / 3) * 0.7 - 1e-6);
+    });
+
+    it('gives each cloud a height band of its own', () => {
+      const scene = new HogwartsCastleScene();
+      const ctx = makeCtx({ width: WIDTH, params: { candleCount: 0, cloudCount: 4, owlCount: 0 } });
+      scene.setup(ctx);
+
+      const visHeight = ctx.height - ctx.chromaKeyHeight;
+      const bandHeight = (visHeight * (0.4 - 0.08)) / 4;
+      const bands = cloudsOf(scene).map((cloud) =>
+        Math.floor((cloud.y - visHeight * 0.08) / bandHeight),
+      );
+
+      expect([...bands].sort()).toEqual([0, 1, 2, 3]);
+    });
+
+    it('drifts every cloud across the sky and wraps it back around', () => {
+      const scene = new HogwartsCastleScene();
+      const ctx = makeCtx({ width: WIDTH, params: { candleCount: 0, cloudCount: 3, owlCount: 0 } });
+      scene.setup(ctx);
+
+      const wrapped = cloudsOf(scene).map(() => false);
+      const previous = cloudsOf(scene).map((cloud) => cloud.x);
+      for (let i = 0; i < 6_000; i++) {
+        ctx.elapsed += 16;
+        scene.update(ctx);
+        cloudsOf(scene).forEach((cloud, n) => {
+          if (cloud.x < previous[n] - TRACK / 2) wrapped[n] = true;
+          previous[n] = cloud.x;
+        });
+      }
+
+      expect(wrapped).toEqual([true, true, true]);
+    });
+  });
+
   it('populates the owl count from ctx.params on setup and resizes it live on update', () => {
-    const scene = new GreatHallScene();
+    const scene = new HogwartsCastleScene();
     const ctx = makeCtx({ params: { candleCount: 4, cloudCount: 2, owlCount: 1 } });
     scene.setup(ctx);
 
@@ -197,7 +292,7 @@ describe('GreatHallScene', () => {
   });
 
   it('keeps an owl — wing tips and full bob included — inside the visualization area', () => {
-    const scene = new GreatHallScene();
+    const scene = new HogwartsCastleScene();
     const ctx = makeCtx({ width: 900, height: 900, chromaKeyHeight: 300 });
     scene.setup(ctx);
 
@@ -209,7 +304,7 @@ describe('GreatHallScene', () => {
   });
 
   it('flies an owl horizontally while bobbing it on a sine around its base altitude', () => {
-    const scene = new GreatHallScene();
+    const scene = new HogwartsCastleScene();
     const ctx = makeCtx({ params: { candleCount: 0, cloudCount: 0, owlCount: 1 } });
     scene.setup(ctx);
     const owl = owlsOf(scene)[0];
@@ -225,7 +320,7 @@ describe('GreatHallScene', () => {
   });
 
   it('wraps an owl that flies past the right edge back to the left edge', () => {
-    const scene = new GreatHallScene();
+    const scene = new HogwartsCastleScene();
     const ctx = makeCtx({ params: { candleCount: 0, cloudCount: 0, owlCount: 1 } });
     scene.setup(ctx);
     const owl = owlsOf(scene)[0];
@@ -238,7 +333,7 @@ describe('GreatHallScene', () => {
   });
 
   it('confines the sky gradient to the visualization area, never painting into the chroma key band', () => {
-    const scene = new GreatHallScene();
+    const scene = new HogwartsCastleScene();
     const p = new RecordingP5();
     const ctx = makeCtx({ p: p as unknown as P5Like, params: { candleCount: 0, cloudCount: 0 } });
     scene.setup(ctx);
@@ -252,7 +347,7 @@ describe('GreatHallScene', () => {
   });
 
   it('draws the engine crystals via the seam, after the sky and clouds and before the candles', () => {
-    const scene = new GreatHallScene();
+    const scene = new HogwartsCastleScene();
     const p = new RecordingP5();
     const drawCrystals = vi.fn(() => p.calls.push({ name: 'crystals', args: [] }));
     const ctx = makeCtx({
@@ -280,7 +375,7 @@ describe('GreatHallScene', () => {
   });
 
   it('keeps the castle on the right half of the visualization area, above the chroma key band', () => {
-    const scene = new GreatHallScene();
+    const scene = new HogwartsCastleScene();
     const p = new RecordingP5();
     const ctx = makeCtx({
       p: p as unknown as P5Like,
@@ -310,7 +405,7 @@ describe('GreatHallScene', () => {
   });
 
   it('builds the castle as one block, with no sky showing between its buildings', () => {
-    const scene = new GreatHallScene();
+    const scene = new HogwartsCastleScene();
     const p = new RecordingP5();
     const ctx = makeCtx({
       p: p as unknown as P5Like,
@@ -337,7 +432,7 @@ describe('GreatHallScene', () => {
   });
 
   it('never draws one castle window crowding into another', () => {
-    const scene = new GreatHallScene();
+    const scene = new HogwartsCastleScene();
     const p = new RecordingP5();
     const ctx = makeCtx({
       p: p as unknown as P5Like,
@@ -365,7 +460,7 @@ describe('GreatHallScene', () => {
   });
 
   it('brightens the castle windows on a note, then lets them settle', () => {
-    const scene = new GreatHallScene();
+    const scene = new HogwartsCastleScene();
     const ctx = makeCtx({
       params: { candleCount: 0, cloudCount: 0, owlCount: 0, lightning: false },
     });
@@ -390,7 +485,7 @@ describe('GreatHallScene', () => {
   });
 
   it('draws no castle when the toggle is off', () => {
-    const scene = new GreatHallScene();
+    const scene = new HogwartsCastleScene();
     const p = new RecordingP5();
     const ctx = makeCtx({
       p: p as unknown as P5Like,
@@ -405,7 +500,7 @@ describe('GreatHallScene', () => {
   });
 
   it('paints the castle as the backdrop, behind the owls and the crystals', () => {
-    const scene = new GreatHallScene();
+    const scene = new HogwartsCastleScene();
     const p = new RecordingP5();
     const drawCrystals = vi.fn(() => p.calls.push({ name: 'crystals', args: [] }));
     const ctx = makeCtx({
@@ -431,7 +526,7 @@ describe('GreatHallScene', () => {
   });
 
   it('fires a lightning flash once the randomly scheduled interval elapses', () => {
-    const scene = new GreatHallScene();
+    const scene = new HogwartsCastleScene();
     const p = new RecordingP5();
     const ctx = makeCtx({ p: p as unknown as P5Like });
     scene.setup(ctx);
@@ -445,7 +540,7 @@ describe('GreatHallScene', () => {
   });
 
   it('fades the lightning flash out instead of holding it', () => {
-    const scene = new GreatHallScene();
+    const scene = new HogwartsCastleScene();
     const p = new RecordingP5();
     const ctx = makeCtx({ p: p as unknown as P5Like });
     scene.setup(ctx);
@@ -458,7 +553,7 @@ describe('GreatHallScene', () => {
   });
 
   it('never flashes when the lightning toggle is off', () => {
-    const scene = new GreatHallScene();
+    const scene = new HogwartsCastleScene();
     const p = new RecordingP5();
     const ctx = makeCtx({
       p: p as unknown as P5Like,
@@ -474,7 +569,7 @@ describe('GreatHallScene', () => {
   });
 
   it('waits out a full interval when the lightning toggle comes back on, rather than flashing at once', () => {
-    const scene = new GreatHallScene();
+    const scene = new HogwartsCastleScene();
     const p = new RecordingP5();
     const off = makeCtx({
       p: p as unknown as P5Like,
@@ -497,7 +592,7 @@ describe('GreatHallScene', () => {
   });
 
   it('onNoteOn flares the candle nearest the key column, scaled by velocity', () => {
-    const scene = new GreatHallScene();
+    const scene = new HogwartsCastleScene();
     const ctx = makeCtx({ width: 900, params: { candleCount: 2, cloudCount: 0 } });
     scene.setup(ctx);
     const candles = candlesOf(scene);
@@ -512,7 +607,7 @@ describe('GreatHallScene', () => {
   });
 
   it('decays a candle flare over subsequent updates', () => {
-    const scene = new GreatHallScene();
+    const scene = new HogwartsCastleScene();
     const ctx = makeCtx({ width: 900, params: { candleCount: 1, cloudCount: 0 } });
     scene.setup(ctx);
 
@@ -526,7 +621,7 @@ describe('GreatHallScene', () => {
   });
 
   it('draw does not throw across update/draw cycles', () => {
-    const scene = new GreatHallScene();
+    const scene = new HogwartsCastleScene();
     const ctx = makeCtx();
     scene.setup(ctx);
 
@@ -539,7 +634,7 @@ describe('GreatHallScene', () => {
   });
 
   it('clears its populations on teardown', () => {
-    const scene = new GreatHallScene();
+    const scene = new HogwartsCastleScene();
     scene.setup(makeCtx());
 
     scene.teardown();
@@ -553,7 +648,7 @@ describe('GreatHallScene', () => {
     const QUIET = { candleCount: 0, cloudCount: 0, owlCount: 0, castle: false, lightning: false };
 
     function drawAt(params: SceneContext['params'], elapsed: number, flashAt?: number) {
-      const scene = new GreatHallScene();
+      const scene = new HogwartsCastleScene();
       const p = new RecordingP5();
       const ctx = makeCtx({ p: p as unknown as P5Like, params });
       scene.setup(ctx);
@@ -641,7 +736,7 @@ describe('GreatHallScene', () => {
     });
 
     it('forgets the bolt on teardown', () => {
-      const scene = new GreatHallScene();
+      const scene = new HogwartsCastleScene();
       const ctx = makeCtx();
       scene.setup(ctx);
       scene.update({ ...ctx, elapsed: 14_001 });
@@ -656,7 +751,7 @@ describe('GreatHallScene', () => {
     const CALM = { candleCount: 4, cloudCount: 0, owlCount: 0, lightning: false };
 
     it('releases golden dust above the flames that drifts upward', () => {
-      const scene = new GreatHallScene();
+      const scene = new HogwartsCastleScene();
       // A frame as long as the dust interval guarantees every candle releases a mote.
       const ctx = makeCtx({ params: CALM, deltaTime: 700 });
       scene.setup(ctx);
@@ -674,7 +769,7 @@ describe('GreatHallScene', () => {
     });
 
     it('lets dust fade out and disappear at the end of its life', () => {
-      const scene = new GreatHallScene();
+      const scene = new HogwartsCastleScene();
       const ctx = makeCtx({ params: CALM, deltaTime: 700 });
       scene.setup(ctx);
       scene.update(ctx);
@@ -688,7 +783,7 @@ describe('GreatHallScene', () => {
 
     it('never keeps more than 70 motes of dust in the air', () => {
       vi.spyOn(Math, 'random').mockReturnValue(0); // every candle releases every frame
-      const scene = new GreatHallScene();
+      const scene = new HogwartsCastleScene();
       const ctx = makeCtx({ params: { ...CALM, candleCount: 16 } });
       scene.setup(ctx);
 
@@ -700,7 +795,7 @@ describe('GreatHallScene', () => {
     });
 
     it('bursts sparks from the candle under a hard note, and none for a soft one', () => {
-      const scene = new GreatHallScene();
+      const scene = new HogwartsCastleScene();
       const ctx = makeCtx({ width: 900, params: { ...CALM, candleCount: 2 } });
       scene.setup(ctx);
       const [left, right] = candlesOf(scene);
@@ -717,7 +812,7 @@ describe('GreatHallScene', () => {
     });
 
     it('arcs sparks over and back down under gravity', () => {
-      const scene = new GreatHallScene();
+      const scene = new HogwartsCastleScene();
       const ctx = makeCtx({ params: CALM });
       scene.setup(ctx);
       scene.onNoteOn(noteOn(60, 1), ctx);
@@ -730,7 +825,7 @@ describe('GreatHallScene', () => {
     });
 
     it('never keeps more than 90 sparks in the air', () => {
-      const scene = new GreatHallScene();
+      const scene = new HogwartsCastleScene();
       const ctx = makeCtx({ params: CALM });
       scene.setup(ctx);
 
@@ -740,7 +835,7 @@ describe('GreatHallScene', () => {
     });
 
     it('brightens the halo rings around a flaring flame', () => {
-      const scene = new GreatHallScene();
+      const scene = new HogwartsCastleScene();
       const ctx = makeCtx({ params: { ...CALM, candleCount: 1, castle: false } });
       scene.setup(ctx);
       const outerRing = () => {
@@ -756,7 +851,7 @@ describe('GreatHallScene', () => {
     });
 
     it('clears dust and sparks on teardown', () => {
-      const scene = new GreatHallScene();
+      const scene = new HogwartsCastleScene();
       const ctx = makeCtx({ params: CALM, deltaTime: 700 });
       scene.setup(ctx);
       scene.update(ctx);
@@ -770,8 +865,8 @@ describe('GreatHallScene', () => {
   });
 
   describe('owl post', () => {
-    function twoOwls(): { scene: GreatHallScene; ctx: SceneContext } {
-      const scene = new GreatHallScene();
+    function twoOwls(): { scene: HogwartsCastleScene; ctx: SceneContext } {
+      const scene = new HogwartsCastleScene();
       const ctx = makeCtx({ params: { candleCount: 0, cloudCount: 0, owlCount: 2 } });
       scene.setup(ctx);
       const [left, right] = owlsOf(scene);
@@ -847,7 +942,7 @@ describe('GreatHallScene', () => {
     });
 
     it('caps how many letters can fall at once', () => {
-      const scene = new GreatHallScene();
+      const scene = new HogwartsCastleScene();
       const ctx = makeCtx({ params: { candleCount: 0, cloudCount: 0, owlCount: 3 } });
       scene.setup(ctx);
 
