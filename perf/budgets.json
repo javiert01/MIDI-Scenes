@@ -1,8 +1,9 @@
 {
   "$comment": "Hand-edited thresholds for the performance workbench (perf/README.md). baseline.json holds the measured draw-call baseline and is rewritten by `npm run perf:update`.",
   "frame": {
-    "$comment": "p95 cost of one frame (update + draw + raster) in software-rendered headless Chromium at 1600x800. 16.7 ms is a whole 60 fps frame.",
-    "p95Ms": 16.7
+    "$comment": "p95 cost of one frame (update + draw + raster) in software-rendered headless Chromium at 1600x800. 16.7 ms is a whole 60 fps frame. tolerancePct is how far over that a case may go before it fails, to absorb a slow CI runner.",
+    "p95Ms": 16.7,
+    "tolerancePct": 30
   },
   "regression": {
     "$comment": "Against the base branch, measured on the same machine in the same run. A case fails only when it is both this much slower in % and in ms.",

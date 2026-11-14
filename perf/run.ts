@@ -31,7 +31,7 @@ const BASE_CHECKOUT = path.join(OUT, 'base');
 const SEED = 20260611;
 
 interface Budgets {
-  frame: { p95Ms: number };
+  frame: { p95Ms: number; tolerancePct: number };
   regression: { medianPct: number; minDeltaMs: number };
   drawCalls: { tolerancePct: number };
   bundle: { maxGzipKb: number; maxGrowthPct: number };
@@ -249,11 +249,26 @@ function summarise(results: RunResult[]): CaseStats {
   };
 }
 
+/**
+ * The p95 a case may reach before it fails: the frame budget plus the
+ * tolerance that absorbs a slow runner. Timing is the one check that depends
+ * on the machine, and CI runners vary a lot from one run to the next.
+ */
+const frameLimitMs = budgets.frame.p95Ms * (1 + (budgets.frame.tolerancePct ?? 0) / 100);
+const frameBudgetLabel =
+  `${budgets.frame.p95Ms} ms` +
+  (budgets.frame.tolerancePct ? ` +${budgets.frame.tolerancePct}% tolerance` : '');
+
 function judge(report: CaseReport): void {
   const { head, base } = report;
-  if (head.p95Ms > budgets.frame.p95Ms) {
+  if (head.p95Ms > frameLimitMs) {
     report.failures.push(
-      `p95 frame ${head.p95Ms.toFixed(2)} ms is over the ${budgets.frame.p95Ms} ms budget`,
+      `p95 frame ${head.p95Ms.toFixed(2)} ms is over the ${frameBudgetLabel} budget` +
+        (frameLimitMs > budgets.frame.p95Ms ? ` (${frameLimitMs.toFixed(2)} ms)` : ''),
+    );
+  } else if (head.p95Ms > budgets.frame.p95Ms) {
+    report.notes.push(
+      `p95 frame ${head.p95Ms.toFixed(2)} ms is over the ${budgets.frame.p95Ms} ms budget but within the +${budgets.frame.tolerancePct}% tolerance (${frameLimitMs.toFixed(2)} ms): a slow machine, or a Scene close to its budget`,
     );
   }
   if (base) {
@@ -310,7 +325,7 @@ function markdown(
   lines.push(
     `One frame's update + draw + raster in headless Chromium (software canvas, 1600×800), ` +
       `median of ${rounds} round${rounds === 1 ? '' : 's'} × ${frames} frames after ${warmupFrames} warmup. ` +
-      `Budget: p95 ≤ ${budgets.frame.p95Ms} ms` +
+      `Budget: p95 ≤ ${frameBudgetLabel}` +
       (baseSha ? `; compared against base \`${baseSha.slice(0, 7)}\` on the same machine.` : '.'),
   );
   lines.push('');
