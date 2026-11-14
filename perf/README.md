@@ -46,14 +46,17 @@ Thresholds live in `budgets.json`:
 
 | Check            | Fails when                                                                  |
 | ---------------- | --------------------------------------------------------------------------- |
-| Frame budget     | a case's p95 frame cost is over `frame.p95Ms` (16.7 ms, one 60 fps frame)   |
+| Frame budget     | a case's p95 frame cost is over `frame.p95Ms` (16.7 ms, one 60 fps frame) by more than `frame.tolerancePct` % |
 | Regression       | a case's median frame is `regression.medianPct` % **and** `minDeltaMs` ms slower than the base |
 | Draw calls       | a case draws more than `drawCalls.tolerancePct` % over `baseline.json`      |
 | Bundle           | the bundle is over `bundle.maxGzipKb`, or `maxGrowthPct` % bigger than the base |
 
 The regression check only means something next to a base, so it runs only with
 `--base-ref`. CI always passes one: a PR's target branch, or the `main` a push
-replaced. The frame-cost checks use timing, so they get generous margins. The
+replaced. The frame-cost checks use timing, so they get generous margins.
+The frame budget is an absolute figure, so a slow runner can push every case
+over it, the base included. `frame.tolerancePct` absorbs that: a case over the
+budget but inside the tolerance passes with a note in the report. The
 draw-call check is exact, so it catches "this now draws twice as much" even on a
 noisy runner.
 
